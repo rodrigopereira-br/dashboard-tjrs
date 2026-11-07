@@ -381,7 +381,11 @@ async function djFetch(cnj){
     if(!r.ok) throw new Error('Datajud respondeu HTTP '+r.status+(r.status===401?' — chave inválida ou expirada.':''));
     j=await r.json();
   }
-  if(j&&j.error) throw new Error(typeof j.error==='string'?j.error:JSON.stringify(j.error));
+  if(j&&j.error){
+    const raw=typeof j.error==='string'?j.error:JSON.stringify(j.error);
+    const busy=/es_rejected_execution|all shards failed|too_many_requests|timeout|HTTP (429|502|503|504)/i.test(raw)||[429,502,503,504].includes(j.status);
+    const e=new Error(busy?'O Datajud está sobrecarregado no momento.':raw.slice(0,300)); e.busy=busy; throw e;
+  }
   return ((j&&j.hits&&j.hits.hits)||[]).map(h=>h._source||h);
 }
 function djRender(list,cnj){
@@ -412,8 +416,15 @@ async function djSearch(raw){
   const cnj=String(raw||'').replace(/\D/g,''); const b=f('dj-body');
   if(cnj.length!==20){b.innerHTML='<div class="dj-err">Informe um nº CNJ com 20 dígitos.</div>';return;}
   b.innerHTML='<div class="muted">Consultando o Datajud…</div>';
-  try{ djRender(await djFetch(cnj),cnj); }
-  catch(e){ b.innerHTML=`<div class="dj-err">${escH(e.message)}</div>`; }
+  const esp=[3000,6000,10000]; let ult;
+  for(let t=0;t<=esp.length;t++){
+    try{ djRender(await djFetch(cnj),cnj); return; }
+    catch(e){ ult=e; if(!e.busy||t===esp.length) break;
+      b.innerHTML=`<div class="muted">Datajud sobrecarregado. Nova tentativa em ${esp[t]/1000}s… (${t+1}/${esp.length})</div>`;
+      await new Promise(r=>setTimeout(r,esp[t])); b.innerHTML='<div class="muted">Consultando o Datajud…</div>'; }
+  }
+  b.innerHTML=`<div class="dj-err">${escH(ult.message)}${ult.busy?' O servidor do CNJ recusou a consulta após várias tentativas; isso costuma ser passageiro.':''}</div><p><button class="btn" id="dj-retry">Tentar novamente</button></p>`;
+  f('dj-retry').onclick=()=>djSearch(cnj);
 }
 function djOpen(cnj){ f('dj').hidden=false; f('dj-cnj').value=cnj?fmtCNJ(cnj):''; if(cnj) djSearch(cnj); else f('dj-body').innerHTML='<div class="muted">Digite um nº CNJ ou clique em uma linha da tabela.</div>'; }
 
