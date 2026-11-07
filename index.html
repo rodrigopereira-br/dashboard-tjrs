@@ -255,7 +255,7 @@ function quadroFromMatrix(M){
   const h=M[hi].map(x=>String(x).trim().toLowerCase()), ix=['numero_cnj','edital','data','total','link','detalhes'].map(c=>h.indexOf(c));
   for(const r of M.slice(hi+1)){
     const g=i=>i<0?'':String(r[i]==null?'':r[i]).trim(); const cnj=g(ix[0]).replace(/\D/g,''); if(!cnj) continue;
-    const total=parseFloat(g(ix[3]).replace(',','.')); if(!isFinite(total)) continue;
+    let total=parseFloat(g(ix[3]).replace(',','.')); if(!isFinite(total)) total=null; if(total==null&&!g(ix[1])) continue;
     m[cnj]={edital:g(ix[1]),data:g(ix[2]),total,link:g(ix[4]),detalhes:g(ix[5])};
   }
   return m;
@@ -398,7 +398,7 @@ function render(){
   const ma=agg('adm',r=>r.adm); bars(f('b-adm'),ma,S.adm,total,12,k=>toggle(S.adm,k));
 
   // tabela
-  const val=(r,k)=>k==='cnj'?r.cnj:k==='com'?r.com:k==='cls'?CLS_SHORT[r.cls]:k==='dem'?r.dem:k==='adm'?r.admStr:k==='advg'?r.advStr:k==='qd'?(r.q?r.q.total:-1):k==='dt'?r.dt:k==='sit'?(r.sit===EMPTY?'':r.sit):r.th;
+  const val=(r,k)=>k==='cnj'?r.cnj:k==='com'?r.com:k==='cls'?CLS_SHORT[r.cls]:k==='dem'?r.dem:k==='adm'?r.admStr:k==='advg'?r.advStr:k==='qd'?(r.q?(r.q.total==null?0:r.q.total):-1):k==='dt'?r.dt:k==='sit'?(r.sit===EMPTY?'':r.sit):r.th;
   rows.sort((a,b)=>{const x=val(a,sort.k),y=val(b,sort.k);return (x<y?-1:x>y?1:0)*sort.dir;});
   const cols=[['cnj','Nº CNJ'],['th','Nº Themis'],['com','Comarca'],['cls','Classe'],['dem','Demandado'],['adm','Administrador'],['advg','Advogados'],['qd','Total do quadro de credores'],['dt','Propositura'],['sit','Situação']];
   document.getElementById('thead').innerHTML='<tr>'+cols.map(([k,l])=>`<th data-k="${k}" class="${sort.k===k?'sorted':''}">${l}${sort.k===k?(sort.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
@@ -414,7 +414,7 @@ function render(){
     return g.map((x,k)=>`<tr class="clk${k===0?' gs':''}" data-cnj="${x.cnj}" title="Clique para consultar no Datajud">`
       +(k===0?`<td class="mono"${rs}>${fmtCNJ(r.cnj)}${n>1?`<div class="muted" style="font-family:inherit;font-size:11px">${n} partes</div>`:''}</td><td${rs}>${esc(r.th)}</td><td${rs}>${esc(r.com)}</td><td${rs}><span class="tag ${CLS_TAG[r.cls]}">${CLS_SHORT[r.cls]}</span></td>`:'')
       +`<td>${esc(x.dem)}</td>`
-      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td${rs} title="${escH(r.advTip)}">${r.advStr?esc(r.advStr):'<span class="muted">—</span>'}</td><td${rs} title="${r.q?escH(r.q.detalhes||''):''}">${r.q?`<b>${brl(r.q.total)}</b><div class="muted" style="font-size:11px">${r.q.link?`<a href="${escH(r.q.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escH(r.q.edital)}</a>`:escH(r.q.edital)} · ${escH(djDate(r.q.data))}</div>`:'<span class="muted">—</span>'}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
+      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td${rs} title="${escH(r.advTip)}">${r.advStr?esc(r.advStr):'<span class="muted">—</span>'}</td><td${rs} title="${r.q?escH(r.q.detalhes||''):''}">${r.q?`<b>${r.q.total!=null?brl(r.q.total):'<span class="muted">Total não identificado</span>'}</b><div class="muted" style="font-size:11px">${r.q.link?`<a href="${escH(r.q.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escH(r.q.edital)}</a>`:escH(r.q.edital)} · ${escH(djDate(r.q.data))}</div>`:'<span class="muted">—</span>'}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
       +'</tr>').join('');
   }).join('')||'<tr><td colspan="10" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
   tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=ev=>djOpen(tr.dataset.cnj,ev));
@@ -594,16 +594,18 @@ function djenEditais(items){
   return out;
 }
 function djenQuadro(items){
-  const out=djenEditais(items).filter(e=>e.total!=null&&isFinite(e.total)).map(e=>({edital:e.tipo+e.nota,data:e.data,total:e.total,link:e.link}));
-  out.sort((a,b)=>b.data.localeCompare(a.data));
-  if(!out.length) return null;
-  const r=out[0]; r.detalhes=out.map(x=>x.edital+' · '+djDate(x.data)+' · '+brl(x.total)).join(' | ');
+  const all=djenEditais(items).map(e=>({edital:e.tipo+e.nota,data:e.data,total:(e.total!=null&&isFinite(e.total))?e.total:null,link:e.link}));
+  all.sort((a,b)=>b.data.localeCompare(a.data));
+  if(!all.length) return null;
+  const com=all.filter(x=>x.total!=null);
+  const r=Object.assign({},com.length?com[0]:all[0]); // prefere o edital mais recente que tenha total; senão, registra o edital mais recente sem total
+  r.detalhes=all.map(x=>x.edital+' · '+djDate(x.data)+' · '+(x.total!=null?brl(x.total):'total não identificado')).join(' | ');
   return r;
 }
 async function gravarQuadro(cnj,q){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravarq','1'); u.searchParams.set('cnj',cnj); u.searchParams.set('edital',q.edital); u.searchParams.set('data',q.data);
-  u.searchParams.set('total',String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||'');
+  u.searchParams.set('total',q.total==null?'':String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||'');
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar o quadro.');
 }
 // ---- Gravar advogados na planilha (aba "Advogados") ----
@@ -625,7 +627,7 @@ function djenLimpaMarcas(cnj){ try{ ['djen_','advsv_','qsv_','dq_','dj_'].forEac
 function djenSaveBox(items,cnj,refazer){
   const lst=djenAdvogados(items), qd=djenQuadro(items), box=document.createElement('div'); box.className='pub'; box.style.background='var(--bg)';
   const key='advsv_'+cnj, done=()=>{ try{return localStorage.getItem(key)==String(lst.length)&&(!qd||localStorage.getItem('qsv_'+cnj)===String(qd.total));}catch(e){return false;} };
-  const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':' Nenhum edital com total identificado.'); box.append(msg);
+  const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?(qd.total!=null?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':' Edital encontrado ('+qd.edital+') sem total identificado; será gravado sem valor.'):' Nenhum edital encontrado.'); box.append(msg);
   const rf=document.createElement('button'); rf.className='btn'; rf.type='button'; rf.style.marginTop='6px'; rf.textContent='Refazer busca e gravação'; rf.title='Ignora o que já foi gravado, consulta o DJEN de novo e substitui os dados deste processo na planilha'; rf.onclick=()=>{ djenLimpaMarcas(cnj); djenSearch(cnj,{refazer:true}); };
   const run=async()=>{
     msg.textContent='Gravando na planilha…';
@@ -665,7 +667,7 @@ async function loteStart(){
     const cnj=pend[i]; upd(fmtCNJ(cnj));
     try{
       const items=await djenFetchAll(cnj), lst=djenAdvogados(items), qd=djenQuadro(items), eds=djenEditais(items);
-      lote.ed+=eds.length; if(!eds.length) lote.sed++; else if(!qd){ lote.sem++; eds.forEach(e=>lote.lista.push(fmtCNJ(cnj)+' | '+e.tipo+' | '+e.data+' | '+(e.link||'sem link'))); }
+      lote.ed+=eds.length; if(!eds.length) lote.sed++; else if(!qd||qd.total==null){ lote.sem++; eds.forEach(e=>lote.lista.push(fmtCNJ(cnj)+' | '+e.tipo+' | '+e.data+' | '+(e.link||'sem link'))); }
       if(qd){ await gravarQuadro(cnj,qd); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
       try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
       if(lst.length){ await gravarAdv(cnj,lst,refazer);
