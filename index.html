@@ -52,20 +52,24 @@ main{min-width:0}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:12px}
 .card h3{margin:0 0 10px;font-size:13px}
 .card h3 small{color:var(--mute);font-weight:400}
-.bars .b{display:grid;grid-template-columns:minmax(90px,38%) 1fr 54px;gap:8px;align-items:center;padding:3px 0;cursor:pointer;font-size:12.5px}
+.bars .b{display:grid;grid-template-columns:minmax(90px,36%) minmax(40px,1fr) auto;gap:8px;align-items:center;padding:3px 0;cursor:pointer;font-size:12.5px}
+.bars .b{border-radius:6px}
+.bars .b:hover{background:var(--accent-soft)}
 .bars .b:hover .lab{text-decoration:underline}
+.bars .b:not(.off) .lab{font-weight:500}
 .bars .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bars .tr{background:var(--bg);height:12px;border-radius:6px;overflow:hidden}
 .bars .fi{height:100%;background:var(--bar);border-radius:6px}
 .bars .b.off .fi{background:var(--bar-off)}
-.bars .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--mute)}
+.bars .num{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;color:var(--mute)}
 .yearchart{display:flex;align-items:flex-end;gap:3px;height:160px;padding-top:6px}
 .yearchart .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;cursor:pointer;min-width:0}
 .yearchart .col i{display:block;width:100%;background:var(--bar);border-radius:3px 3px 0 0;min-height:1px}
 .yearchart .col.off i{background:var(--bar-off)}
 .yearchart .col:hover i{filter:brightness(1.15)}
 .xl{display:flex;gap:3px;color:var(--mute);font-size:10.5px}
-.xl span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
+.xl span{flex:1;position:relative;height:16px;min-width:0}
+.xl em{position:absolute;left:50%;transform:translateX(-50%);font-style:normal;white-space:nowrap}
 .tablewrap{overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
@@ -109,7 +113,6 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <span class="muted">Contar por:</span>
     <div class="seg" id="unit"><button data-u="proc" class="on">Processos (CNJ únicos)</button><button data-u="row">Linhas (partes)</button></div>
     <button class="btn" id="clear">Limpar filtros</button>
-    <button class="btn" id="refresh">↻ Atualizar da planilha</button>
     <button class="btn" id="dj-open">Consultar Datajud</button>
     <details class="cfg" id="cfg" hidden style="display:none"><summary class="btn">Fonte de dados</summary>
       <div class="pop">
@@ -145,8 +148,6 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
   <h2>Administrador judicial <a id="x-adm">limpar</a></h2>
   <input type="text" id="s-adm" placeholder="Buscar administrador…">
   <div class="list" id="l-adm"></div>
-  <h2>Data de propositura <a id="x-dt">limpar</a></h2>
-  <div class="row2"><input type="date" id="f-from"><input type="date" id="f-to"></div>
   <h2>Situação <a id="x-sit">limpar</a></h2>
   <div class="list" id="l-sit" style="max-height:none"></div>
   <div class="hint" id="sit-hint"></div>
@@ -160,8 +161,8 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <div class="card"><h3>Por classe <small>(clique para filtrar)</small></h3><div class="bars" id="b-cls"></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h3>Top 12 comarcas</h3><div class="bars" id="b-com"></div></div>
-    <div class="card"><h3>Top 12 administradores judiciais</h3><div class="bars" id="b-adm"></div></div>
+    <div class="card"><h3>Top 12 comarcas <small>(clique para filtrar)</small></h3><div class="bars" id="b-com"></div></div>
+    <div class="card"><h3>Top 12 administradores judiciais <small>(clique para filtrar)</small></h3><div class="bars" id="b-adm"></div></div>
   </div>
   <div class="card">
     <h3>Registros <small id="tinfo"></small></h3>
@@ -189,7 +190,7 @@ const NOADM = '(sem administrador)', EMPTY = '(vazio)';
 const DEFAULT_SHEET_ID = '1uwWYh4YVtVYd3Evq1SVtE_UTr8lKFGHVgaGql0tP-1M';
 // Cole aqui a URL do Apps Script (termina em /exec). Serve para a planilha e para o proxy do Datajud.
 const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyvY6gbhT0DOBj4-HxtshDI9QaD8Xmn_35RErIR_NnrEW3OXWk57QOLcALbI2vXmspc/exec';
-const DEFAULT_DJ_KEY = ''; // opcional: chave pública do Datajud
+const DEFAULT_DJ_KEY = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=='; // chave pública do Datajud (publicada pelo CNJ)
 let CLS=[], CLS_SHORT=[], CLS_TAG=[], COM={}, R=[];
 const shortCls=n=>/^Fal/i.test(n)?'Falência':n;
 const tagCls=n=>/^Fal/i.test(n)?'t-fal':/Extra/i.test(n)?'t-re':/Judicial/i.test(n)?'t-rj':'t-fal';
@@ -264,7 +265,7 @@ function bars(el,counts,set,total,limit,onClick){
     const lab=typeof k==='number'?CLS_SHORT[k]:k;
     d.innerHTML=`<span class="lab" title="${lab.replace(/"/g,'&quot;')}"></span><span class="tr"><span class="fi" style="display:block;width:${Math.max(2,n/max*100)}%"></span></span><span class="num"></span>`;
     d.children[0].textContent=lab; d.children[2].textContent=nf(n)+' · '+(total?Math.round(n/total*100):0)+'%';
-    d.onclick=()=>onClick(k); el.append(d);
+    d.title='Clique para filtrar / remover filtro'; d.onclick=()=>onClick(k); el.append(d);
   }
 }
 const toggle=(set,k)=>{set.has(k)?set.delete(k):set.add(k);page=0;render();};
@@ -285,17 +286,15 @@ function render(){
   const comSet=new Set(rows.map(r=>r.com)), admSet=new Set();
   rows.forEach(r=>r.adm.forEach(a=>{if(a!==NOADM)admSet.add(a);}));
   const semAdm=new Set(rows.filter(r=>r.adm[0]===NOADM).map(r=>r.cnj)).size;
-  const dts=rows.map(r=>r.dt).sort();
   const kp=[
     [nf(procs.size),'Processos (CNJ únicos)'],
     [nf(rows.length),'Linhas / demandados'],
     [nf(comSet.size),'Comarcas'],
     [nf(admSet.size),'Administradores distintos'],
-    [procs.size?Math.round(semAdm/procs.size*100)+'%':'–','Processos sem administrador'],
-    [dts.length?fmtDt(dts[0]).slice(6)+'–'+fmtDt(dts[dts.length-1]).slice(6):'–','Período (ano de propositura)']
+    [procs.size?Math.round(semAdm/procs.size*100)+'%':'–','Processos sem administrador']
   ];
   document.getElementById('kpis').innerHTML=kp.map(([v,l])=>`<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
-  document.getElementById('sub').textContent=`${nf(R.length)} linhas na base · exibindo ${nf(rows.length)} (${nf(procs.size)} processos)`;
+  document.getElementById('sub').textContent=`${nf(procs.size)} processos`;
 
   // chips de filtros ativos
   const chips=[];
@@ -306,7 +305,7 @@ function render(){
   S.cls.forEach(k=>chips.push(['Classe: '+CLS_SHORT[k],()=>S.cls.delete(k)]));
   S.adm.forEach(k=>chips.push(['Adm.: '+k,()=>S.adm.delete(k)]));
   S.sit.forEach(k=>chips.push(['Situação: '+k,()=>S.sit.delete(k)]));
-  if(S.from||S.to)chips.push(['Data: '+(S.from?fmtDt(S.from):'…')+' → '+(S.to?fmtDt(S.to):'…'),()=>{S.from=S.to='';f('f-from').value=f('f-to').value='';}]);
+  if(S.from||S.to)chips.push(['Data: '+(S.from?fmtDt(S.from):'…')+' → '+(S.to?fmtDt(S.to):'…'),()=>{S.from=S.to='';}]);
   const ch=document.getElementById('chips');ch.innerHTML='';
   chips.forEach(([t,fn])=>{const c=document.createElement('span');c.className='chip';c.innerHTML='';c.append(t);const b=document.createElement('b');b.textContent='×';c.append(b);c.onclick=()=>{fn();page=0;render();};ch.append(c);});
 
@@ -319,9 +318,9 @@ function render(){
     const n=yc.get(y)||0; const c=document.createElement('div');c.className='col'+(yrSel&&yrSel!==y?' off':'');
     c.title=`${y}: ${nf(n)} ${unitLabel}`;c.innerHTML=`<i style="height:${n/ymax*100}%"></i>`;
     c.onclick=()=>{ if(yrSel===y){S.from=S.to='';}else{S.from=y+'-01-01';S.to=y+'-12-31';}
-      f('f-from').value=S.from;f('f-to').value=S.to;page=0;render();};
+      page=0;render();};
     yw.append(c);
-    const s=document.createElement('span');s.textContent=(i%5===0||i===ys.length-1)?y.slice(2):'';yl.append(s);
+    const s=document.createElement('span');if(i%5===0||(i===ys.length-1&&(ys.length-1)%5>=3))s.innerHTML='<em>'+y+'</em>';yl.append(s);
   });
 
   const cc=agg('cls',r=>[r.cls]); const ccTot=[...cc.values()].reduce((a,b)=>a+b,0);
@@ -490,7 +489,7 @@ function applyData(rowsRes,com,origem){
   S.cls=new Set(keepCls.map(n=>CLS.indexOf(n)).filter(i=>i>=0));
   page=0; render();
   const t=new Date().toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
-  let msg=`Atualizado em ${t} · ${nf(rowsRes.rows.length)} linhas · ${origem}`;
+  let msg=`Atualizado em ${t}`;
   if(rowsRes.bad) msg+=` · ⚠ ${rowsRes.bad} CNJ com tamanho diferente de 20 dígitos`;
   if(rowsRes.badDate) msg+=` · ⚠ ${rowsRes.badDate} linhas sem data válida ignoradas`;
   setStatus(msg,false);
@@ -513,7 +512,7 @@ function setStatus(t,err){const e=f('status');e.textContent=t;e.style.color=err?
 async function refresh(){
   const cfg=cfgGet(), id=(f('cfg-id').value.trim()||DEFAULT_SHEET_ID), url=(f('cfg-url').value.trim()||EXEC_URL);
   cfgSet({id:f('cfg-id').value.trim(),url});
-  const btn=f('refresh'); btn.disabled=true; setStatus('Consultando a planilha…',false);
+  setStatus('Consultando a planilha…',false);
   try{
     let M1,M2,origem;
     if(url){
@@ -529,7 +528,7 @@ async function refresh(){
   }catch(e){
     setStatus('Falha ao atualizar: '+e.message+'. Verifique o compartilhamento da planilha ou a implantação do Apps Script.',true);
     f('cfg').open=true;
-  }finally{btn.disabled=false;}
+  }
 }
 async function fromFiles(files){
   try{
@@ -550,20 +549,19 @@ async function fromFiles(files){
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')f('dj').hidden=true;});
   f('dj-form').onsubmit=e=>{e.preventDefault();djSearch(f('dj-cnj').value);};
-  f('refresh').onclick=refresh; f('cfg-file').onchange=e=>{if(e.target.files.length)fromFiles([...e.target.files]);e.target.value='';};
+  f('cfg-file').onchange=e=>{if(e.target.files.length)fromFiles([...e.target.files]);e.target.value='';};
   setStatus('Carregando dados da planilha…',false);})();
 window.TJRS={djOpen,djSearch,load,matrixFromGviz,rowsFromMatrix,comarcasFromMatrix,parseCSV,applyData,get R(){return R;}};
 
 // eventos
 const bind=(id,key,fn)=>f(id).addEventListener('input',e=>{S[key]=e.target.value;page=0;render();});
-bind('f-cnj','cnj');bind('f-th','th');bind('f-dem','dem');bind('f-from','from');bind('f-to','to');
+bind('f-cnj','cnj');bind('f-th','th');bind('f-dem','dem');
 f('s-com').addEventListener('input',e=>{searchCom=e.target.value;render();});
 f('s-adm').addEventListener('input',e=>{searchAdm=e.target.value;render();});
 f('x-com').onclick=()=>{S.com.clear();render();};f('x-cls').onclick=()=>{S.cls.clear();render();};
 f('x-adm').onclick=()=>{S.adm.clear();render();};f('x-sit').onclick=()=>{S.sit.clear();render();};
-f('x-dt').onclick=()=>{S.from=S.to='';f('f-from').value=f('f-to').value='';page=0;render();};
 f('clear').onclick=()=>{S.cnj=S.th=S.dem=S.from=S.to='';S.com.clear();S.cls.clear();S.adm.clear();S.sit.clear();
-  ['f-cnj','f-th','f-dem','f-from','f-to','s-com','s-adm'].forEach(i=>f(i).value='');searchCom=searchAdm='';page=0;render();};
+  ['f-cnj','f-th','f-dem','s-com','s-adm'].forEach(i=>f(i).value='');searchCom=searchAdm='';page=0;render();};
 f('prev').onclick=()=>{page--;render();};f('next').onclick=()=>{page++;render();};
 document.querySelectorAll('#unit button').forEach(b=>b.onclick=()=>{S.unit=b.dataset.u;
   document.querySelectorAll('#unit button').forEach(x=>x.classList.toggle('on',x===b));render();});
