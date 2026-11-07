@@ -195,7 +195,6 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <div class="mb">
       <div id="lote-info" class="muted" style="margin-bottom:10px"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-        <input type="password" id="lote-senha" placeholder="Senha de gravação" style="flex:1;min-width:160px">
         <button class="btn primary" id="lote-go">Iniciar</button>
         <button class="btn" id="lote-stop" disabled>Parar</button>
       </div>
@@ -573,10 +572,10 @@ function djenQuadro(items){
   const r=out[0]; r.detalhes=out.map(x=>x.edital+' · '+djDate(x.data)+' · '+brl(x.total)).join('\n').replace(/\n/g,' | ');
   return r;
 }
-async function gravarQuadro(cnj,q,senha){
+async function gravarQuadro(cnj,q){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravarq','1'); u.searchParams.set('cnj',cnj); u.searchParams.set('edital',q.edital); u.searchParams.set('data',q.data);
-  u.searchParams.set('total',String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||''); u.searchParams.set('senha',senha);
+  u.searchParams.set('total',String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||'');
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar o quadro.');
 }
 // ---- Gravar advogados na planilha (aba "Advogados") ----
@@ -587,12 +586,10 @@ function djenAdvogados(items){
     const nome=String(v.nome).replace(/;/g,',').trim(), k=nome+'|'+oab; if(seen.has(k)) return; seen.add(k); out.push({nome,oab}); }));
   return out;
 }
-function senhaGet(){ try{return localStorage.getItem('dj_senha')||'';}catch(e){return '';} }
-function senhaSet(v){ try{ v?localStorage.setItem('dj_senha',v):localStorage.removeItem('dj_senha'); }catch(e){} }
-async function gravarAdv(cnj,lst,senha){
+async function gravarAdv(cnj,lst){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravar','1'); u.searchParams.set('cnj',cnj);
-  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); u.searchParams.set('senha',senha);
+  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';'));
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar.');
   return j;
 }
@@ -601,21 +598,15 @@ function djenSaveBox(items,cnj){
   if(!lst.length&&!qd){ return null; }
   const key='advsv_'+cnj, done=()=>{ try{return localStorage.getItem(key)==String(lst.length)&&(!qd||localStorage.getItem('qsv_'+cnj)===String(qd.total));}catch(e){return false;} };
   const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':''); box.append(msg);
-  const run=async senha=>{
+  const run=async()=>{
     msg.textContent='Gravando na planilha…';
-    try{ if(lst.length){ await gravarAdv(cnj,lst,senha); try{localStorage.setItem(key,String(lst.length));}catch(e){}
+    try{ if(lst.length){ await gravarAdv(cnj,lst); try{localStorage.setItem(key,String(lst.length));}catch(e){}
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))}; }
-      if(qd){ await gravarQuadro(cnj,qd,senha); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
-      senhaSet(senha); applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(lst.length?'aba Advogados':'')+(lst.length&&qd?' e ':'')+(qd?'aba Quadro de Credores':'')+').'; form.hidden=true; }
-    catch(e){ if(/senha/i.test(e.message)) senhaSet(''); msg.textContent='Não foi possível gravar: '+e.message; form.hidden=false; }
+      if(qd){ await gravarQuadro(cnj,qd); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
+      applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(lst.length?'aba Advogados':'')+(lst.length&&qd?' e ':'')+(qd?'aba Quadro de Credores':'')+').'; }
+    catch(e){ msg.textContent='Não foi possível gravar: '+e.message+' '; const b=document.createElement('button'); b.className='btn'; b.type='button'; b.textContent='Tentar novamente'; b.onclick=run; msg.append(b); }
   };
-  const form=document.createElement('div'); form.style.cssText='display:flex;gap:6px;margin-top:6px';
-  const inp=document.createElement('input'); inp.type='password'; inp.placeholder='Senha de gravação'; inp.style.flex='1';
-  const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Gravar na planilha';
-  btn.onclick=()=>{ if(inp.value) run(inp.value); }; inp.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();btn.click();} };
-  form.append(inp,btn); box.append(form);
-  const sv=senhaGet();
-  if(sv){ form.hidden=true; if(done()){ msg.textContent='✔ Advogados já gravados na planilha.'; } else run(sv); }
+  if(done()){ msg.textContent='✔ Já gravado na planilha.'; } else run();
   return box;
 }
 // ---- Lote: consulta o DJEN dos processos filtrados e grava os advogados em sequência ----
@@ -634,7 +625,6 @@ function loteInfo(){
   f('lote-go').disabled=loteRun||!pend.length;
 }
 async function loteStart(){
-  const senha=f('lote-senha').value||senhaGet(); if(!senha){ f('lote-st').textContent='Informe a senha de gravação.'; return; }
   const {pend}=lotePend(); if(!pend.length) return;
   loteRun=true; f('lote-go').disabled=true; f('lote-stop').disabled=false;
   let ok=0,sem=0,err=0,i=0,seguidos=0;
@@ -643,9 +633,9 @@ async function loteStart(){
     const cnj=pend[i]; upd(fmtCNJ(cnj));
     try{
       const items=await djenFetch(cnj), lst=djenAdvogados(items), qd=djenQuadro(items);
-      if(qd){ await gravarQuadro(cnj,qd,senha); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
+      if(qd){ await gravarQuadro(cnj,qd); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
       try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
-      if(lst.length){ await gravarAdv(cnj,lst,senha); senhaSet(senha);
+      if(lst.length){ await gravarAdv(cnj,lst);
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))};
         try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){} ok++; }
       else { try{localStorage.setItem('advsv_'+cnj,'0');}catch(e){} sem++; }
@@ -653,7 +643,6 @@ async function loteStart(){
       if(i%10===0){ applyAdv(); render(); }
       await new Promise(r=>setTimeout(r,3000));
     }catch(e){
-      if(/senha/i.test(e.message)){ senhaSet(''); f('lote-st').textContent='Senha incorreta. Lote interrompido.'; loteRun=false; applyAdv(); render(); f('lote-stop').disabled=true; loteInfo(); return; }
       if(e.busy&&++seguidos<=3){ upd('servidor ocupado, aguardando 30s…'); await new Promise(r=>setTimeout(r,30000)); continue; }
       err++; i++; seguidos=0; await new Promise(r=>setTimeout(r,3000));
     }
@@ -809,7 +798,7 @@ async function fromFiles(files){
   f('cfg-key').value=c.key||'';f('cfg-proxy').value=c.proxy||'';
   f('cfg-key').oninput=e=>cfgSet({key:e.target.value.trim()}); f('cfg-proxy').oninput=e=>cfgSet({proxy:e.target.value.trim()});
   f('dj-open').onclick=ev=>djOpen('',ev);
-  f('lote-open').onclick=()=>{ f('lote').hidden=false; f('lote-senha').value=''; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
+  f('lote-open').onclick=()=>{ f('lote').hidden=false; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
   f('lote-close').onclick=()=>{ loteRun=false; f('lote').hidden=true; };
   f('lote-go').onclick=loteStart; f('lote-stop').onclick=()=>{ loteRun=false; }; document.querySelectorAll('#dj .tab').forEach(b=>b.onclick=()=>djTab(b.dataset.t)); f('dj-close').onclick=()=>{f('dj').hidden=true;};
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
