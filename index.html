@@ -90,9 +90,9 @@ header{position:relative}
 .cfg .pop label{display:grid;gap:4px;font-size:12px;color:var(--mute)}
 #status{max-width:640px}
 tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
-.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;justify-content:center;align-items:flex-start;padding:4vh 12px;overflow:auto}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:flex;justify-content:center;align-items:flex-start;padding:0 12px;overflow:auto}
 .ov[hidden]{display:none}
-.mod{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(860px,100%);max-height:92vh;display:flex;flex-direction:column}
+.mod{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(860px,100%);max-height:min(85vh,720px);display:flex;flex-direction:column}
 .mh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
 .grow{flex:1}
 .mf{display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
@@ -350,7 +350,7 @@ function render(){
       +(k===0?`<td${rs}>${esc(r.admStr)}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
       +'</tr>').join('');
   }).join('')||'<tr><td colspan="8" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
-  tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=()=>djOpen(tr.dataset.cnj));
+  tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=ev=>djOpen(tr.dataset.cnj,ev));
   document.getElementById('pinfo').textContent=`Página ${page+1} de ${pages} · ${nf(groups.length)} processos · ${nf(rows.length)} partes`;
   document.getElementById('tinfo').textContent='(clique no cabeçalho para ordenar)';
   f('prev').disabled=page===0; f('next').disabled=page>=pages-1;
@@ -388,7 +388,7 @@ async function djFetch(cnj){
   }else{
     if(!key) throw new Error('Informe a chave pública do Datajud em "Fonte de dados".');
     let r; try{
-      r=await fetch(DJ_BASE+DJ_ALIAS+'/_search',{method:'POST',headers:{'Authorization':'APIKey '+key,'Content-Type':'application/json'},body:JSON.stringify({size:20,query:{match:{numeroProcesso:cnj}}})});
+      r=await fetch(DJ_BASE+DJ_ALIAS+'/_search',{method:'POST',headers:{'Authorization':'APIKey '+key,'Content-Type':'application/json'},body:JSON.stringify({size:20,query:{term:{numeroProcesso:cnj}}})});
     }catch(e){ throw new Error('O navegador bloqueou a chamada direta (CORS). Configure o "Proxy para o Datajud" (Apps Script).'); }
     if(!r.ok) throw new Error('Datajud respondeu HTTP '+r.status+(r.status===401?' — chave inválida ou expirada.':''));
     j=await r.json();
@@ -428,9 +428,10 @@ async function djSearch(raw){
   const cnj=String(raw||'').replace(/\D/g,''); const b=f('dj-body');
   if(cnj.length!==20){b.innerHTML='<div class="dj-err">Informe um nº CNJ com 20 dígitos.</div>';return;}
   b.innerHTML='<div class="muted">Consultando o Datajud…</div>';
-  const esp=[3000,6000,10000]; let ult;
+  const ck='dj_'+cnj; try{ const c=JSON.parse(localStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<864e5&&c.d.length){ djRender(c.d,cnj); return; } }catch(e){}
+  const esp=[4000,8000,15000,25000]; let ult;
   for(let t=0;t<=esp.length;t++){
-    try{ djRender(await djFetch(cnj),cnj); return; }
+    try{ const lst=await djFetch(cnj); djRender(lst,cnj); try{ if(lst.length) localStorage.setItem(ck,JSON.stringify({t:Date.now(),d:lst})); }catch(e){} return; }
     catch(e){ ult=e; if(!e.busy||t===esp.length) break;
       b.innerHTML=`<div class="muted">Datajud sobrecarregado. Nova tentativa em ${esp[t]/1000}s… (${t+1}/${esp.length})</div>`;
       await new Promise(r=>setTimeout(r,esp[t])); b.innerHTML='<div class="muted">Consultando o Datajud…</div>'; }
@@ -438,7 +439,10 @@ async function djSearch(raw){
   b.innerHTML=`<div class="dj-err">${escH(ult.message)}${ult.busy?' O servidor do CNJ recusou a consulta após várias tentativas; isso costuma ser passageiro.':''}</div><p><button class="btn" id="dj-retry">Tentar novamente</button></p>`;
   f('dj-retry').onclick=()=>djSearch(cnj);
 }
-function djOpen(cnj){ f('dj').hidden=false; f('dj-cnj').value=cnj?fmtCNJ(cnj):''; if(cnj) djSearch(cnj); else f('dj-body').innerHTML='<div class="muted">Digite um nº CNJ ou clique em uma linha da tabela.</div>'; }
+function djOpen(cnj,ev){ f('dj').hidden=false;
+  // posiciona o pop-up onde o usuário clicou (útil quando a página está num iframe alto)
+  const H=window.innerHeight, y=ev&&typeof ev.clientY==='number'?ev.clientY:H/2;
+  f('dj').querySelector('.mod').style.marginTop=Math.round(Math.min(Math.max(12,y-60),Math.max(12,H-740)))+'px'; f('dj-cnj').value=cnj?fmtCNJ(cnj):''; if(cnj) djSearch(cnj); else f('dj-body').innerHTML='<div class="muted">Digite um nº CNJ ou clique em uma linha da tabela.</div>'; }
 
 function cellStr(c){
   if(!c||c.v==null) return '';
@@ -568,7 +572,7 @@ async function fromFiles(files){
 (function initCfg(){const c=cfgGet();f('cfg-id').value=c.id||'';f('cfg-id').placeholder=DEFAULT_SHEET_ID;f('cfg-url').value=c.url||'';f('cfg-url').placeholder=EXEC_URL||'https://script.google.com/macros/s/…/exec';
   f('cfg-key').value=c.key||'';f('cfg-proxy').value=c.proxy||'';
   f('cfg-key').oninput=e=>cfgSet({key:e.target.value.trim()}); f('cfg-proxy').oninput=e=>cfgSet({proxy:e.target.value.trim()});
-  f('dj-open').onclick=()=>djOpen(''); f('dj-close').onclick=()=>{f('dj').hidden=true;};
+  f('dj-open').onclick=ev=>djOpen('',ev); f('dj-close').onclick=()=>{f('dj').hidden=true;};
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')f('dj').hidden=true;});
   f('dj-form').onsubmit=e=>{e.preventDefault();djSearch(f('dj-cnj').value);};
