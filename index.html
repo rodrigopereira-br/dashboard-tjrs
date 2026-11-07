@@ -106,6 +106,15 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
 .mv td.d{white-space:nowrap;color:var(--mute)}
 .mv small{color:var(--mute)}
 .dj-err{color:#c0392b}
+.tabs{display:flex;gap:4px;padding:8px 16px 0;border-bottom:1px solid var(--line)}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 10px;font:inherit;font-size:13px;color:var(--mute);cursor:pointer}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.mb[hidden]{display:none}
+.pub{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:13px}
+.pub h4{margin:0 0 4px;font-size:13px}
+.pub .meta{color:var(--mute);font-size:12px;margin-bottom:4px;overflow-wrap:anywhere}
+.pub details summary{cursor:pointer;color:var(--accent);font-size:12.5px;margin-top:4px}
+.pub .txt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:auto;font-size:12.5px;background:var(--bg);padding:8px;border-radius:8px}
 </style>
 </head>
 <body>
@@ -116,6 +125,7 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <div class="seg" id="unit"><button data-u="proc" class="on">Processos (CNJ únicos)</button><button data-u="row">Linhas (partes)</button></div>
     <button class="btn" id="clear">Limpar filtros</button>
     <button class="btn" id="dj-open">Consultar Datajud</button>
+    <button class="btn" id="lote-open">Gravar advogados em lote</button>
     <details class="cfg" id="cfg" hidden style="display:none"><summary class="btn">Fonte de dados</summary>
       <div class="pop">
         <label>ID da planilha Google<input type="text" id="cfg-id"></label>
@@ -150,6 +160,10 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
   <h2>Administrador judicial <a id="x-adm">limpar</a></h2>
   <input type="text" id="s-adm" placeholder="Buscar administrador…">
   <div class="list" id="l-adm"></div>
+  <h2>Advogado (DJEN) <a id="x-advg">limpar</a></h2>
+  <input type="text" id="s-advg" placeholder="Buscar advogado…">
+  <div class="list" id="l-advg"></div>
+  <div class="hint">Preenchido conforme os processos são consultados no Diário de Justiça.</div>
   <h2>Situação <a id="x-sit">limpar</a></h2>
   <div class="list" id="l-sit" style="max-height:none"></div>
   <div class="hint" id="sit-hint"></div>
@@ -166,12 +180,30 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <div class="card"><h3>Top 12 comarcas <small>(clique para filtrar)</small></h3><div class="bars" id="b-com"></div></div>
     <div class="card"><h3>Top 12 administradores judiciais <small>(clique para filtrar)</small></h3><div class="bars" id="b-adm"></div></div>
   </div>
+  <div class="card" style="margin-bottom:12px"><h3>Top 12 advogados <small>(clique para filtrar · só processos já consultados)</small></h3><div class="bars" id="b-advg"></div></div>
   <div class="card">
     <h3>Registros <small id="tinfo"></small></h3>
     <div class="tablewrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
     <div class="pager"><span class="muted" id="pinfo"></span><span><button class="btn" id="prev">‹ Anterior</button> <button class="btn" id="next">Próxima ›</button></span></div>
   </div>
 </main>
+</div>
+
+<div id="lote" class="ov" hidden>
+  <div class="mod" style="max-width:620px">
+    <div class="mh"><b>Consulta em lote ao Diário (DJEN)</b><span class="grow"></span><button class="btn" id="lote-close">Fechar</button></div>
+    <div class="mb">
+      <div id="lote-info" class="muted" style="margin-bottom:10px"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <input type="password" id="lote-senha" placeholder="Senha de gravação" style="flex:1;min-width:160px">
+        <button class="btn primary" id="lote-go">Iniciar</button>
+        <button class="btn" id="lote-stop" disabled>Parar</button>
+      </div>
+      <div class="tr" style="background:var(--bg);height:10px;border-radius:6px;overflow:hidden"><span id="lote-bar" style="display:block;height:100%;width:0;background:var(--bar)"></span></div>
+      <div id="lote-st" class="muted" style="margin-top:8px;font-size:12.5px"></div>
+      <div class="hint" style="margin-top:10px">Usa os processos do filtro atual (por exemplo, filtre por um ano ou comarca antes). Mantenha esta página aberta durante a execução. Processos já gravados são pulados, então dá para parar e continuar depois.</div>
+    </div>
+  </div>
 </div>
 
 <div id="dj" class="ov" hidden>
@@ -182,13 +214,16 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
       <button class="btn" id="dj-close">Fechar</button>
     </div>
     <form id="dj-form" class="mf"><input type="text" id="dj-cnj" placeholder="Nº CNJ (20 dígitos ou formatado)"><button class="btn primary" type="submit">Buscar</button></form>
+    <div class="tabs"><button type="button" class="tab on" data-t="dj">Datajud · movimentações</button><button type="button" class="tab" data-t="djen">Diário de Justiça (DJEN) <span id="djen-n"></span></button></div>
     <div id="dj-body" class="mb"></div>
+    <div id="djen-body" class="mb" hidden></div>
   </div>
 </div>
 
 <script>
 (function(){
-const NOADM = '(sem administrador)', EMPTY = '(vazio)';
+const NOADM = '(sem administrador)', NOADV = '(sem consulta)', EMPTY = '(vazio)';
+let ADVMAP = {}, QMAP = {};
 const DEFAULT_SHEET_ID = '1uwWYh4YVtVYd3Evq1SVtE_UTr8lKFGHVgaGql0tP-1M';
 // Cole aqui a URL do Apps Script (termina em /exec). Serve para a planilha e para o proxy do Datajud.
 const EXEC_URL = 'https://script.google.com/macros/s/AKfycbyvY6gbhT0DOBj4-HxtshDI9QaD8Xmn_35RErIR_NnrEW3OXWk57QOLcALbI2vXmspc/exec';
@@ -209,6 +244,33 @@ function load(D){
     dt:a[6], yr:a[6].slice(0,4), sit:a[7]||EMPTY
   }));
   R.forEach(r=>{r.nDem=norm(r.dem);r.nCom=norm(r.com);});
+  applyAdv();
+}
+function applyAdv(){ R.forEach(r=>{const a=ADVMAP[r.cnj]; r.advs=a&&a.names.length?a.names:[NOADV]; r.advStr=a?a.names.join('; '):''; r.advTip=a?a.pairs.join('\n'):''; r.q=QMAP[r.cnj]||null;}); }
+const brl=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function quadroFromMatrix(M){
+  const m={}; if(!M) return m;
+  const hi=M.findIndex(r=>r.map(x=>String(x).trim().toLowerCase()).includes('numero_cnj')); if(hi<0) return m;
+  const h=M[hi].map(x=>String(x).trim().toLowerCase()), ix=['numero_cnj','edital','data','total','link','detalhes'].map(c=>h.indexOf(c));
+  for(const r of M.slice(hi+1)){
+    const g=i=>i<0?'':String(r[i]==null?'':r[i]).trim(); const cnj=g(ix[0]).replace(/\D/g,''); if(!cnj) continue;
+    const total=parseFloat(g(ix[3]).replace(',','.')); if(!isFinite(total)) continue;
+    m[cnj]={edital:g(ix[1]),data:g(ix[2]),total,link:g(ix[4]),detalhes:g(ix[5])};
+  }
+  return m;
+}
+function advFromMatrix(M){
+  const m={}; if(!M) return m;
+  const hi=M.findIndex(r=>r.map(x=>String(x).trim().toLowerCase()).includes('numero_cnj')); if(hi<0) return m;
+  const h=M[hi].map(x=>String(x).trim().toLowerCase()), ic=h.indexOf('numero_cnj'), ia=h.indexOf('advogados'), io=h.indexOf('oabs');
+  if(ia<0) return m;
+  for(const r of M.slice(hi+1)){
+    const cnj=String(r[ic]==null?'':r[ic]).replace(/\D/g,''); if(!cnj) continue;
+    const nm=String(r[ia]||'').split(';').map(x=>x.trim()), ob=io<0?[]:String(r[io]||'').split(';').map(x=>x.trim());
+    const pairs=[],names=[]; nm.forEach((n,i)=>{ if(!n) return; pairs.push(n+(ob[i]?' – OAB/'+ob[i]:'')); if(!names.includes(n)) names.push(n); });
+    if(names.length) m[cnj]={names,pairs};
+  }
+  return m;
 }
 const fmtCNJ=s=>s.length===20?`${s.slice(0,7)}-${s.slice(7,9)}.${s.slice(9,13)}.${s.slice(13,14)}.${s.slice(14,16)}.${s.slice(16)}`:s;
 const fmtDt=s=>s.split('-').reverse().join('/');
@@ -216,9 +278,9 @@ const nf=n=>n.toLocaleString('pt-BR');
 const norm=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 load({rows:[],comarcas:{}});
 
-const S={cnj:'',th:'',dem:'',com:new Set(),cls:new Set(),adm:new Set(),sit:new Set(),from:'',to:'',unit:'proc'};
+const S={cnj:'',th:'',dem:'',com:new Set(),cls:new Set(),adm:new Set(),advg:new Set(),sit:new Set(),from:'',to:'',unit:'proc'};
 let sort={k:'dt',dir:-1}, page=0; const PS=50;
-let searchCom='', searchAdm='';
+let searchCom='', searchAdm='', searchAdvg='';
 
 function match(r,skip){
   if(skip!=='cnj' && S.cnj && !r.cnj.includes(S.cnj.replace(/\D/g,'')||'\u0000')) return false;
@@ -227,6 +289,7 @@ function match(r,skip){
   if(skip!=='com' && S.com.size && !S.com.has(r.com)) return false;
   if(skip!=='cls' && S.cls.size && !S.cls.has(r.cls)) return false;
   if(skip!=='adm' && S.adm.size && !r.adm.some(a=>S.adm.has(a))) return false;
+  if(skip!=='advg' && S.advg.size && !r.advs.some(a=>S.advg.has(a))) return false;
   if(skip!=='sit' && S.sit.size && !S.sit.has(r.sit)) return false;
   if(skip!=='dt'){ if(S.from && r.dt<S.from) return false; if(S.to && r.dt>S.to) return false; }
   return true;
@@ -277,6 +340,7 @@ function render(){
   checklist(document.getElementById('l-com'),agg('com',r=>[r.com]),S.com,searchCom);
   checklist(document.getElementById('l-cls'),agg('cls',r=>[r.cls]),S.cls,'',k=>CLS_SHORT[k]);
   checklist(document.getElementById('l-adm'),agg('adm',r=>r.adm),S.adm,searchAdm);
+  checklist(document.getElementById('l-advg'),agg('advg',r=>r.advs),S.advg,searchAdvg);
   checklist(document.getElementById('l-sit'),agg('sit',r=>[r.sit]),S.sit,'');
 
   const rows=R.filter(r=>match(r));
@@ -306,6 +370,7 @@ function render(){
   S.com.forEach(k=>chips.push(['Comarca: '+k,()=>S.com.delete(k)]));
   S.cls.forEach(k=>chips.push(['Classe: '+CLS_SHORT[k],()=>S.cls.delete(k)]));
   S.adm.forEach(k=>chips.push(['Adm.: '+k,()=>S.adm.delete(k)]));
+  S.advg.forEach(k=>chips.push(['Advogado: '+k,()=>S.advg.delete(k)]));
   S.sit.forEach(k=>chips.push(['Situação: '+k,()=>S.sit.delete(k)]));
   if(S.from||S.to)chips.push(['Data: '+(S.from?fmtDt(S.from):'…')+' → '+(S.to?fmtDt(S.to):'…'),()=>{S.from=S.to='';}]);
   const ch=document.getElementById('chips');ch.innerHTML='';
@@ -328,12 +393,13 @@ function render(){
   const cc=agg('cls',r=>[r.cls]); const ccTot=[...cc.values()].reduce((a,b)=>a+b,0);
   bars(f('b-cls'),cc,S.cls,ccTot,5,k=>toggle(S.cls,k));
   const mc=agg('com',r=>[r.com]); bars(f('b-com'),mc,S.com,[...mc.values()].reduce((a,b)=>a+b,0),12,k=>toggle(S.com,k));
+  const mg=agg('advg',r=>r.advs.filter(a=>a!==NOADV)); bars(f('b-advg'),mg,S.advg,total,12,k=>toggle(S.advg,k));
   const ma=agg('adm',r=>r.adm); bars(f('b-adm'),ma,S.adm,total,12,k=>toggle(S.adm,k));
 
   // tabela
-  const val=(r,k)=>k==='cnj'?r.cnj:k==='com'?r.com:k==='cls'?CLS_SHORT[r.cls]:k==='dem'?r.dem:k==='adm'?r.admStr:k==='dt'?r.dt:k==='sit'?(r.sit===EMPTY?'':r.sit):r.th;
+  const val=(r,k)=>k==='cnj'?r.cnj:k==='com'?r.com:k==='cls'?CLS_SHORT[r.cls]:k==='dem'?r.dem:k==='adm'?r.admStr:k==='advg'?r.advStr:k==='qd'?(r.q?r.q.total:-1):k==='dt'?r.dt:k==='sit'?(r.sit===EMPTY?'':r.sit):r.th;
   rows.sort((a,b)=>{const x=val(a,sort.k),y=val(b,sort.k);return (x<y?-1:x>y?1:0)*sort.dir;});
-  const cols=[['cnj','Nº CNJ'],['th','Nº Themis'],['com','Comarca'],['cls','Classe'],['dem','Demandado'],['adm','Administrador'],['dt','Propositura'],['sit','Situação']];
+  const cols=[['cnj','Nº CNJ'],['th','Nº Themis'],['com','Comarca'],['cls','Classe'],['dem','Demandado'],['adm','Administrador'],['advg','Advogados'],['qd','Total do quadro de credores'],['dt','Propositura'],['sit','Situação']];
   document.getElementById('thead').innerHTML='<tr>'+cols.map(([k,l])=>`<th data-k="${k}" class="${sort.k===k?'sorted':''}">${l}${sort.k===k?(sort.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
   document.querySelectorAll('#thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sort.dir=sort.k===k?-sort.dir:1;sort.k=k;page=0;render();});
   // agrupa por nº CNJ (ordem de primeira aparição) e pagina por processo
@@ -347,9 +413,9 @@ function render(){
     return g.map((x,k)=>`<tr class="clk${k===0?' gs':''}" data-cnj="${x.cnj}" title="Clique para consultar no Datajud">`
       +(k===0?`<td class="mono"${rs}>${fmtCNJ(r.cnj)}${n>1?`<div class="muted" style="font-family:inherit;font-size:11px">${n} partes</div>`:''}</td><td${rs}>${esc(r.th)}</td><td${rs}>${esc(r.com)}</td><td${rs}><span class="tag ${CLS_TAG[r.cls]}">${CLS_SHORT[r.cls]}</span></td>`:'')
       +`<td>${esc(x.dem)}</td>`
-      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
+      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td${rs} title="${escH(r.advTip)}">${r.advStr?esc(r.advStr):'<span class="muted">—</span>'}</td><td${rs} title="${r.q?escH(r.q.detalhes||''):''}">${r.q?`<b>${brl(r.q.total)}</b><div class="muted" style="font-size:11px">${r.q.link?`<a href="${escH(r.q.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escH(r.q.edital)}</a>`:escH(r.q.edital)} · ${escH(djDate(r.q.data))}</div>`:'<span class="muted">—</span>'}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
       +'</tr>').join('');
-  }).join('')||'<tr><td colspan="8" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
+  }).join('')||'<tr><td colspan="10" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
   tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=ev=>djOpen(tr.dataset.cnj,ev));
   document.getElementById('pinfo').textContent=`Página ${page+1} de ${pages} · ${nf(groups.length)} processos · ${nf(rows.length)} partes`;
   document.getElementById('tinfo').textContent='(clique no cabeçalho para ordenar)';
@@ -427,7 +493,7 @@ function djRender(list,cnj){
 async function djSearch(raw){
   const cnj=String(raw||'').replace(/\D/g,''); const b=f('dj-body');
   if(cnj.length!==20){b.innerHTML='<div class="dj-err">Informe um nº CNJ com 20 dígitos.</div>';return;}
-  b.innerHTML='<div class="muted">Consultando o Datajud…</div>';
+  b.innerHTML='<div class="muted">Consultando o Datajud…</div>'; djenSearch(cnj);
   const ck='dj_'+cnj; try{ const c=JSON.parse(localStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<864e5&&c.d.length){ djRender(c.d,cnj); return; } }catch(e){}
   const esp=[4000,8000,15000,25000]; let ult;
   for(let t=0;t<=esp.length;t++){
@@ -439,10 +505,179 @@ async function djSearch(raw){
   b.innerHTML=`<div class="dj-err">${escH(ult.message)}${ult.busy?' O servidor do CNJ recusou a consulta após várias tentativas; isso costuma ser passageiro.':''}</div><p><button class="btn" id="dj-retry">Tentar novamente</button></p>`;
   f('dj-retry').onclick=()=>djSearch(cnj);
 }
-function djOpen(cnj,ev){ f('dj').hidden=false;
+// ====== Diário de Justiça Eletrônico Nacional (DJEN / Comunica PJe) ======
+const DJEN_BASE='https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+function djTab(t){ document.querySelectorAll('#dj .tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  f('dj-body').hidden=t!=='dj'; f('djen-body').hidden=t!=='djen'; }
+async function djenFetch(cnj){
+  const q='?numeroProcesso='+cnj+'&pagina=1&itensPorPagina=100'; let j;
+  try{
+    const r=await fetch(DJEN_BASE+q);
+    if(r.status===429||r.status>=500){const e=new Error('O DJEN está indisponível ou limitando consultas (HTTP '+r.status+').');e.busy=true;throw e;}
+    if(!r.ok) throw new Error('DJEN respondeu HTTP '+r.status+'.');
+    j=await r.json();
+  }catch(e){
+    if(e.busy) throw e;
+    const proxy=((cfgGet().proxy)||EXEC_URL||'').trim();
+    if(!proxy) throw new Error('O navegador bloqueou a chamada ao DJEN (CORS) e não há proxy configurado.');
+    const u=new URL(proxy); u.searchParams.set('djen','1'); u.searchParams.set('cnj',cnj);
+    j=await getJSON(u.toString());
+  }
+  if(j&&j.error){ const e=new Error(String(typeof j.error==='string'?j.error:JSON.stringify(j.error)).slice(0,300)); e.busy=/HTTP (429|5\d\d)/.test(e.message); throw e; }
+  return (j&&(j.items||j.content||j.comunicacoes))||[];
+}
+const djenTxt=h=>{ try{
+  const src=String(h||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|tr|section|div|center|header|footer|h\d|li)>/gi,'$&\n').replace(/<\/t[dh]>/gi,'$& ');
+  const dd=new DOMParser().parseFromString(src,'text/html'); dd.querySelectorAll('script,style,head').forEach(n=>n.remove());
+  return dd.body.textContent.replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+}catch(e){ return String(h||''); } };
+const POLO={A:'ativo',P:'passivo',T:'terceiro',D:'demandado'};
+function djenRender(items,cnj){
+  const b=f('djen-body'); f('djen-n').textContent=items.length?'('+items.length+')':'';
+  if(!items.length){b.innerHTML=`<div class="muted">Nenhuma publicação do processo ${escH(fmtCNJ(cnj))} encontrada no DJEN. Publicações anteriores à adoção do DJEN pelo tribunal (ou de processos físicos) não aparecem aqui.</div>`;return;}
+  const dt=i=>String(i.data_disponibilizacao||i.dataDisponibilizacao||i.datadisponibilizacao||'');
+  items=items.slice().sort((a,c)=>{const x=dt(a),y=dt(c); const k=s=>/^\d{2}\/\d{2}\/\d{4}/.test(s)?s.split('/').reverse().join('-'):s; return k(y).localeCompare(k(x));});
+  b.innerHTML=`<div class="muted" style="margin-bottom:8px">${items.length} publicação(ões) · mais recentes primeiro</div>`+items.map(i=>{
+    const dest=(i.destinatarios||[]).map(d=>d&&d.nome&&(d.nome+(POLO[d.polo]?' ('+POLO[d.polo]+')':''))).filter(Boolean).join('; ');
+    const adv=[...new Set((i.destinatarioadvogados||[]).map(a=>{const v=a&&a.advogado; if(!v||!v.nome) return '';
+      const n=String(v.numero_oab||'').replace(/^[A-Za-z]{2}(?=\d)/,''); return v.nome+(n?' – OAB/'+(v.uf_oab||'')+' '+n:'');}).filter(Boolean))].join('; ');
+    const tdoc=i.tipoDocumento&&!/^\d+$/.test(i.tipoDocumento)?i.tipoDocumento:'';
+    const tx=djenTxt(i.texto), link=i.link&&/^https?:\/\//.test(i.link)?i.link:'';
+    return `<div class="pub"><h4>${escH(djDate(dt(i)))} · ${escH(i.tipoComunicacao||'Comunicação')}${tdoc?' · '+escH(tdoc):''}</h4>
+      <div class="meta">${escH(i.nomeOrgao||i.orgao||'')}${i.nomeClasse?' · '+escH(String(i.nomeClasse).toLocaleUpperCase('pt-BR')):''}${i.siglaTribunal?' · '+escH(i.siglaTribunal):''}${i.meiocompleto?' · '+escH(i.meiocompleto):''}</div>
+      ${dest?`<div class="meta">Partes: ${escH(dest)}</div>`:''}${adv?`<div class="meta">Advogados: ${escH(adv)}</div>`:''}
+      ${tx?`<details><summary>Ver texto da publicação</summary><div class="txt">${escH(tx)}</div></details>`:''}
+      ${link?`<div class="meta"><a href="${escH(link)}" target="_blank" rel="noopener">Abrir documento no eproc</a></div>`:''}</div>`;}).join('');
+}
+// ---- Total do quadro de credores (editais dos arts. 52, 7º, 18 e 164 da Lei 11.101/2005) ----
+const parseBR=v=>parseFloat(String(v).replace(/\./g,'').replace(',','.'));
+function edTipo(t){
+  const u=t.toUpperCase(), pats=[['Art. 164',/ART(?:IGO|\.)?\s*164/],['Art. 52',/ART(?:IGO|\.)?\s*52/],['Art. 7º',/ART(?:IGO|\.)?\s*7\s*[º°O]?(?!\d)/],['Art. 18',/ART(?:IGO|\.)?\s*18(?!\d)/]];
+  let best=null,pos=1e9; for(const [n,re] of pats){ const m=re.exec(u); if(m&&m.index<pos){pos=m.index;best=n;} } return best;
+}
+function edTotal(t){
+  let m=/TOTAL\s+GERAL[^R\d]{0,25}R\$\s*([\d.]+,\d{2})/i.exec(t)||/TOTAL\s+(?:DOS\s+)?CR[ÉE]DITOS[^R\d]{0,25}R\$\s*([\d.]+,\d{2})/i.exec(t);
+  if(m) return {v:parseBR(m[1]),soma:false};
+  const all=[...t.matchAll(/TOTAL\s*:?\s*R\$\s*([\d.]+,\d{2})/gi)].map(x=>parseBR(x[1]));
+  return all.length?{v:all.reduce((a,b)=>a+b,0),soma:true}:null;
+}
+function djenQuadro(items){
+  const out=[];
+  items.forEach(i=>{
+    if(!(i.meio==='E'||/edital/i.test(i.tipoComunicacao||''))) return;
+    const t=djenTxt(i.texto); const tp=edTipo(t), tot=edTotal(t); if(!tp||!tot||!isFinite(tot.v)) return;
+    out.push({edital:tp+(tot.soma?' (soma dos totais por classe)':''),data:String(i.data_disponibilizacao||''),total:tot.v,link:/^https?:/.test(i.link||'')?i.link:''});
+  });
+  out.sort((a,b)=>b.data.localeCompare(a.data));
+  if(!out.length) return null;
+  const r=out[0]; r.detalhes=out.map(x=>x.edital+' · '+djDate(x.data)+' · '+brl(x.total)).join('\n').replace(/\n/g,' | ');
+  return r;
+}
+async function gravarQuadro(cnj,q,senha){
+  const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
+  const u=new URL(proxy); u.searchParams.set('gravarq','1'); u.searchParams.set('cnj',cnj); u.searchParams.set('edital',q.edital); u.searchParams.set('data',q.data);
+  u.searchParams.set('total',String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||''); u.searchParams.set('senha',senha);
+  const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar o quadro.');
+}
+// ---- Gravar advogados na planilha (aba "Advogados") ----
+function djenAdvogados(items){
+  const seen=new Set(), out=[];
+  items.forEach(i=>(i.destinatarioadvogados||[]).forEach(a=>{const v=a&&a.advogado; if(!v||!v.nome) return;
+    const n=String(v.numero_oab||'').replace(/^[A-Za-z]{2}(?=\d)/,''); const oab=n?((v.uf_oab||'')+' '+n).trim():'';
+    const nome=String(v.nome).replace(/;/g,',').trim(), k=nome+'|'+oab; if(seen.has(k)) return; seen.add(k); out.push({nome,oab}); }));
+  return out;
+}
+function senhaGet(){ try{return localStorage.getItem('dj_senha')||'';}catch(e){return '';} }
+function senhaSet(v){ try{ v?localStorage.setItem('dj_senha',v):localStorage.removeItem('dj_senha'); }catch(e){} }
+async function gravarAdv(cnj,lst,senha){
+  const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
+  const u=new URL(proxy); u.searchParams.set('gravar','1'); u.searchParams.set('cnj',cnj);
+  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); u.searchParams.set('senha',senha);
+  const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar.');
+  return j;
+}
+function djenSaveBox(items,cnj){
+  const lst=djenAdvogados(items), qd=djenQuadro(items), box=document.createElement('div'); box.className='pub'; box.style.background='var(--bg)';
+  if(!lst.length&&!qd){ return null; }
+  const key='advsv_'+cnj, done=()=>{ try{return localStorage.getItem(key)==String(lst.length)&&(!qd||localStorage.getItem('qsv_'+cnj)===String(qd.total));}catch(e){return false;} };
+  const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':''); box.append(msg);
+  const run=async senha=>{
+    msg.textContent='Gravando na planilha…';
+    try{ if(lst.length){ await gravarAdv(cnj,lst,senha); try{localStorage.setItem(key,String(lst.length));}catch(e){}
+        ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))}; }
+      if(qd){ await gravarQuadro(cnj,qd,senha); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
+      senhaSet(senha); applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(lst.length?'aba Advogados':'')+(lst.length&&qd?' e ':'')+(qd?'aba Quadro de Credores':'')+').'; form.hidden=true; }
+    catch(e){ if(/senha/i.test(e.message)) senhaSet(''); msg.textContent='Não foi possível gravar: '+e.message; form.hidden=false; }
+  };
+  const form=document.createElement('div'); form.style.cssText='display:flex;gap:6px;margin-top:6px';
+  const inp=document.createElement('input'); inp.type='password'; inp.placeholder='Senha de gravação'; inp.style.flex='1';
+  const btn=document.createElement('button'); btn.className='btn'; btn.type='button'; btn.textContent='Gravar na planilha';
+  btn.onclick=()=>{ if(inp.value) run(inp.value); }; inp.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();btn.click();} };
+  form.append(inp,btn); box.append(form);
+  const sv=senhaGet();
+  if(sv){ form.hidden=true; if(done()){ msg.textContent='✔ Advogados já gravados na planilha.'; } else run(sv); }
+  return box;
+}
+// ---- Lote: consulta o DJEN dos processos filtrados e grava os advogados em sequência ----
+let loteRun=false;
+function lotePend(){
+  const seen=new Set(), all=[], pend=[];
+  R.forEach(r=>{ if(!match(r)||seen.has(r.cnj)) return; seen.add(r.cnj); all.push(r.cnj);
+    let sv=null; try{sv=localStorage.getItem('advsv_'+r.cnj);}catch(e){}
+    let dq=null; try{dq=localStorage.getItem('dq_'+r.cnj);}catch(e){}
+    if(dq!=='1'&&!(ADVMAP[r.cnj]&&QMAP[r.cnj])&&sv!=='0') pend.push(r.cnj); });
+  return {total:all.length,pend};
+}
+function loteInfo(){
+  const {total,pend}=lotePend();
+  f('lote-info').textContent=`${nf(total)} processo(s) no filtro atual · ${nf(pend.length)} ainda sem advogados gravados. Estimativa: cerca de ${Math.max(1,Math.round(pend.length*4/60))} min.`;
+  f('lote-go').disabled=loteRun||!pend.length;
+}
+async function loteStart(){
+  const senha=f('lote-senha').value||senhaGet(); if(!senha){ f('lote-st').textContent='Informe a senha de gravação.'; return; }
+  const {pend}=lotePend(); if(!pend.length) return;
+  loteRun=true; f('lote-go').disabled=true; f('lote-stop').disabled=false;
+  let ok=0,sem=0,err=0,i=0,seguidos=0;
+  const upd=txt=>{ f('lote-bar').style.width=Math.round(i/pend.length*100)+'%'; f('lote-st').textContent=`${i}/${pend.length} · com advogados: ${ok} · sem publicações: ${sem} · erros: ${err}${txt?' · '+txt:''}`; };
+  for(;i<pend.length&&loteRun;){
+    const cnj=pend[i]; upd(fmtCNJ(cnj));
+    try{
+      const items=await djenFetch(cnj), lst=djenAdvogados(items), qd=djenQuadro(items);
+      if(qd){ await gravarQuadro(cnj,qd,senha); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
+      try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
+      if(lst.length){ await gravarAdv(cnj,lst,senha); senhaSet(senha);
+        ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))};
+        try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){} ok++; }
+      else { try{localStorage.setItem('advsv_'+cnj,'0');}catch(e){} sem++; }
+      seguidos=0; i++;
+      if(i%10===0){ applyAdv(); render(); }
+      await new Promise(r=>setTimeout(r,3000));
+    }catch(e){
+      if(/senha/i.test(e.message)){ senhaSet(''); f('lote-st').textContent='Senha incorreta. Lote interrompido.'; loteRun=false; applyAdv(); render(); f('lote-stop').disabled=true; loteInfo(); return; }
+      if(e.busy&&++seguidos<=3){ upd('servidor ocupado, aguardando 30s…'); await new Promise(r=>setTimeout(r,30000)); continue; }
+      err++; i++; seguidos=0; await new Promise(r=>setTimeout(r,3000));
+    }
+  }
+  const parou=loteRun&&i>=pend.length?false:true; loteRun=false;
+  applyAdv(); render(); f('lote-stop').disabled=true; loteInfo();
+  f('lote-bar').style.width=Math.round(i/pend.length*100)+'%';
+  f('lote-st').textContent=`${parou?'Interrompido':'Concluído'}: ${i}/${pend.length} · com advogados: ${ok} · sem publicações: ${sem} · erros: ${err}`;
+}
+async function djenSearch(cnj){
+  const b=f('djen-body'); b.innerHTML='<div class="muted">Consultando o Diário de Justiça (DJEN)…</div>'; f('djen-n').textContent='';
+  const ck='djen_'+cnj; try{ const c=JSON.parse(localStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<864e5&&c.d.length){ djenRender(c.d,cnj); const bx=djenSaveBox(c.d,cnj); if(bx) f('djen-body').prepend(bx); return; } }catch(e){}
+  const esp=[4000,10000]; let ult;
+  for(let t=0;t<=esp.length;t++){
+    try{ const l=await djenFetch(cnj); djenRender(l,cnj); const bx=djenSaveBox(l,cnj); if(bx) f('djen-body').prepend(bx); try{ if(l.length) localStorage.setItem(ck,JSON.stringify({t:Date.now(),d:l})); }catch(e){} return; }
+    catch(e){ ult=e; if(!e.busy||t===esp.length) break; b.innerHTML=`<div class="muted">DJEN ocupado. Nova tentativa em ${esp[t]/1000}s…</div>`; await new Promise(r=>setTimeout(r,esp[t])); }
+  }
+  b.innerHTML=`<div class="dj-err">${escH(ult.message)}</div><p><button class="btn" id="djen-retry">Tentar novamente</button></p>`;
+  f('djen-retry').onclick=()=>djenSearch(cnj);
+}
+function djOpen(cnj,ev){ f('dj').hidden=false; djTab('dj');
   // posiciona o pop-up onde o usuário clicou (útil quando a página está num iframe alto)
   const H=window.innerHeight, y=ev&&typeof ev.clientY==='number'?ev.clientY:H/2;
-  f('dj').querySelector('.mod').style.marginTop=Math.round(Math.min(Math.max(12,y-60),Math.max(12,H-740)))+'px'; f('dj-cnj').value=cnj?fmtCNJ(cnj):''; if(cnj) djSearch(cnj); else f('dj-body').innerHTML='<div class="muted">Digite um nº CNJ ou clique em uma linha da tabela.</div>'; }
+  f('dj').querySelector('.mod').style.marginTop=Math.round(Math.min(Math.max(12,y-60),Math.max(12,H-740)))+'px'; f('dj-cnj').value=cnj?fmtCNJ(cnj):''; if(cnj) djSearch(cnj); else f('djen-body').innerHTML=''; f('dj-body').innerHTML='<div class="muted">Digite um nº CNJ ou clique em uma linha da tabela.</div>'; }
 
 function cellStr(c){
   if(!c||c.v==null) return '';
@@ -510,7 +745,8 @@ function gviz(id,sheet){
     document.head.append(s);
   });
 }
-function applyData(rowsRes,com,origem){
+function applyData(rowsRes,com,origem,adv,quad){
+  if(adv) ADVMAP=adv; if(quad) QMAP=quad;
   const keepCls=[...S.cls].map(i=>CLS[i]);
   load({rows:rowsRes.rows,comarcas:com||COM});
   S.cls=new Set(keepCls.map(n=>CLS.indexOf(n)).filter(i=>i>=0));
@@ -541,17 +777,17 @@ async function refresh(){
   cfgSet({id:f('cfg-id').value.trim(),url});
   setStatus('Consultando a planilha…',false);
   try{
-    let M1,M2,origem;
+    let M1,M2,M3=null,M4=null,origem;
     if(url){
       const j=await getJSON(url);
-      M1=j['Página1']||j.rows; M2=j['Código Comarcas']||j.comarcas; origem='Apps Script';
+      M1=j['Página1']||j.rows; M2=j['Código Comarcas']||j.comarcas; M3=j['Advogados']||null; M4=j['Quadro de Credores']||null; origem='Apps Script';
       if(!M1) throw new Error('Resposta sem a aba "Página1".');
     }else{
-      const [t1,t2]=await Promise.all([gviz(id,'Página1'),gviz(id,'Código Comarcas').catch(()=>null)]);
-      M1=matrixFromGviz(t1); M2=t2?matrixFromGviz(t2):null; origem='Google Sheets';
+      const [t1,t2,t3,t4]=await Promise.all([gviz(id,'Página1'),gviz(id,'Código Comarcas').catch(()=>null),gviz(id,'Advogados').catch(()=>null),gviz(id,'Quadro de Credores').catch(()=>null)]);
+      M1=matrixFromGviz(t1); M2=t2?matrixFromGviz(t2):null; M3=t3?matrixFromGviz(t3):null; M4=t4?matrixFromGviz(t4):null; origem='Google Sheets';
     }
     const rr=rowsFromMatrix(M1); if(!rr.rows.length) throw new Error('A planilha não retornou linhas.');
-    applyData(rr,M2?comarcasFromMatrix(M2):null,origem);
+    applyData(rr,M2?comarcasFromMatrix(M2):null,origem,advFromMatrix(M3),quadroFromMatrix(M4));
   }catch(e){
     setStatus('Falha ao atualizar: '+e.message+'. Verifique o compartilhamento da planilha ou a implantação do Apps Script.',true);
     f('cfg').open=true;
@@ -572,23 +808,28 @@ async function fromFiles(files){
 (function initCfg(){const c=cfgGet();f('cfg-id').value=c.id||'';f('cfg-id').placeholder=DEFAULT_SHEET_ID;f('cfg-url').value=c.url||'';f('cfg-url').placeholder=EXEC_URL||'https://script.google.com/macros/s/…/exec';
   f('cfg-key').value=c.key||'';f('cfg-proxy').value=c.proxy||'';
   f('cfg-key').oninput=e=>cfgSet({key:e.target.value.trim()}); f('cfg-proxy').oninput=e=>cfgSet({proxy:e.target.value.trim()});
-  f('dj-open').onclick=ev=>djOpen('',ev); f('dj-close').onclick=()=>{f('dj').hidden=true;};
+  f('dj-open').onclick=ev=>djOpen('',ev);
+  f('lote-open').onclick=()=>{ f('lote').hidden=false; f('lote-senha').value=''; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
+  f('lote-close').onclick=()=>{ loteRun=false; f('lote').hidden=true; };
+  f('lote-go').onclick=loteStart; f('lote-stop').onclick=()=>{ loteRun=false; }; document.querySelectorAll('#dj .tab').forEach(b=>b.onclick=()=>djTab(b.dataset.t)); f('dj-close').onclick=()=>{f('dj').hidden=true;};
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')f('dj').hidden=true;});
   f('dj-form').onsubmit=e=>{e.preventDefault();djSearch(f('dj-cnj').value);};
   f('cfg-file').onchange=e=>{if(e.target.files.length)fromFiles([...e.target.files]);e.target.value='';};
   setStatus('Carregando dados da planilha…',false);})();
-window.TJRS={djOpen,djSearch,load,matrixFromGviz,rowsFromMatrix,comarcasFromMatrix,parseCSV,applyData,get R(){return R;}};
+window.TJRS={djenQuadro,quadroFromMatrix,get QMAP(){return QMAP;},loteStart,lotePend,djenSaveBox,gravarAdv,advFromMatrix,get ADVMAP(){return ADVMAP;},djOpen,djSearch,load,matrixFromGviz,rowsFromMatrix,comarcasFromMatrix,parseCSV,applyData,get R(){return R;}};
 
 // eventos
 const bind=(id,key,fn)=>f(id).addEventListener('input',e=>{S[key]=e.target.value;page=0;render();});
 bind('f-cnj','cnj');bind('f-th','th');bind('f-dem','dem');
 f('s-com').addEventListener('input',e=>{searchCom=e.target.value;render();});
 f('s-adm').addEventListener('input',e=>{searchAdm=e.target.value;render();});
+f('s-advg').addEventListener('input',e=>{searchAdvg=e.target.value;render();});
+f('x-advg').onclick=()=>{S.advg.clear();render();};
 f('x-com').onclick=()=>{S.com.clear();render();};f('x-cls').onclick=()=>{S.cls.clear();render();};
 f('x-adm').onclick=()=>{S.adm.clear();render();};f('x-sit').onclick=()=>{S.sit.clear();render();};
-f('clear').onclick=()=>{S.cnj=S.th=S.dem=S.from=S.to='';S.com.clear();S.cls.clear();S.adm.clear();S.sit.clear();
-  ['f-cnj','f-th','f-dem','s-com','s-adm'].forEach(i=>f(i).value='');searchCom=searchAdm='';page=0;render();};
+f('clear').onclick=()=>{S.cnj=S.th=S.dem=S.from=S.to='';S.com.clear();S.cls.clear();S.adm.clear();S.sit.clear();S.advg.clear();
+  ['f-cnj','f-th','f-dem','s-com','s-adm','s-advg'].forEach(i=>f(i).value='');searchCom=searchAdm=searchAdvg='';page=0;render();};
 f('prev').onclick=()=>{page--;render();};f('next').onclick=()=>{page++;render();};
 document.querySelectorAll('#unit button').forEach(b=>b.onclick=()=>{S.unit=b.dataset.u;
   document.querySelectorAll('#unit button').forEach(x=>x.classList.toggle('on',x===b));render();});
