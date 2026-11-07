@@ -75,6 +75,8 @@ table{border-collapse:collapse;width:100%;font-size:12.5px}
 th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{position:sticky;top:0;background:var(--panel);cursor:pointer;white-space:nowrap;user-select:none;font-size:12px;color:var(--mute)}
 th.sorted{color:var(--accent)}
+tr.gs td{border-top:2px solid var(--line)}
+tr.clk:not(.gs) td{border-top:1px dashed var(--line)}
 td.mono{font-family:ui-monospace,Menlo,Consolas,monospace;white-space:nowrap}
 .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;white-space:nowrap;color:#fff}
 .t-fal{background:var(--c3)}.t-rj{background:var(--c1)}.t-re{background:var(--c2)}
@@ -334,12 +336,22 @@ function render(){
   const cols=[['cnj','Nº CNJ'],['th','Nº Themis'],['com','Comarca'],['cls','Classe'],['dem','Demandado'],['adm','Administrador'],['dt','Propositura'],['sit','Situação']];
   document.getElementById('thead').innerHTML='<tr>'+cols.map(([k,l])=>`<th data-k="${k}" class="${sort.k===k?'sorted':''}">${l}${sort.k===k?(sort.dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr>';
   document.querySelectorAll('#thead th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;sort.dir=sort.k===k?-sort.dir:1;sort.k=k;page=0;render();});
-  const pages=Math.max(1,Math.ceil(rows.length/PS)); if(page>=pages)page=pages-1;
-  const sl=rows.slice(page*PS,page*PS+PS); const tb=document.getElementById('tbody'); tb.innerHTML='';
+  // agrupa por nº CNJ (ordem de primeira aparição) e pagina por processo
+  const gm=new Map(); rows.forEach(r=>{let g=gm.get(r.cnj); if(!g){g=[];gm.set(r.cnj,g);} g.push(r);});
+  const groups=[...gm.values()];
+  const pages=Math.max(1,Math.ceil(groups.length/PS)); if(page>=pages)page=pages-1;
+  const sl=groups.slice(page*PS,page*PS+PS); const tb=document.getElementById('tbody'); tb.innerHTML='';
   const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  tb.innerHTML=sl.map(r=>`<tr class="clk" data-cnj="${r.cnj}" title="Clique para consultar no Datajud"><td class="mono">${fmtCNJ(r.cnj)}</td><td>${esc(r.th)}</td><td>${esc(r.com)}</td><td><span class="tag ${CLS_TAG[r.cls]}">${CLS_SHORT[r.cls]}</span></td><td>${esc(r.dem)}</td><td>${esc(r.admStr)}</td><td class="mono">${fmtDt(r.dt)}</td><td>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
+  tb.innerHTML=sl.map(g=>{
+    const r=g[0], n=g.length, rs=n>1?` rowspan="${n}"`:'';
+    return g.map((x,k)=>`<tr class="clk${k===0?' gs':''}" data-cnj="${x.cnj}" title="Clique para consultar no Datajud">`
+      +(k===0?`<td class="mono"${rs}>${fmtCNJ(r.cnj)}${n>1?`<div class="muted" style="font-family:inherit;font-size:11px">${n} partes</div>`:''}</td><td${rs}>${esc(r.th)}</td><td${rs}>${esc(r.com)}</td><td${rs}><span class="tag ${CLS_TAG[r.cls]}">${CLS_SHORT[r.cls]}</span></td>`:'')
+      +`<td>${esc(x.dem)}</td>`
+      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
+      +'</tr>').join('');
+  }).join('')||'<tr><td colspan="8" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
   tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=()=>djOpen(tr.dataset.cnj));
-  document.getElementById('pinfo').textContent=`Página ${page+1} de ${pages} · ${nf(rows.length)} linhas`;
+  document.getElementById('pinfo').textContent=`Página ${page+1} de ${pages} · ${nf(groups.length)} processos · ${nf(rows.length)} partes`;
   document.getElementById('tinfo').textContent='(clique no cabeçalho para ordenar)';
   f('prev').disabled=page===0; f('next').disabled=page>=pages-1;
   window.__rows=rows; updateHints();
