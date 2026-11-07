@@ -198,8 +198,10 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
         <button class="btn primary" id="lote-go">Iniciar</button>
         <button class="btn" id="lote-stop" disabled>Parar</button>
       </div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:10px"><input type="checkbox" id="lote-refazer"> Refazer os processos já gravados (consulta de novo e substitui os advogados e o quadro na planilha)</label>
       <div class="tr" style="background:var(--bg);height:10px;border-radius:6px;overflow:hidden"><span id="lote-bar" style="display:block;height:100%;width:0;background:var(--bar)"></span></div>
       <div id="lote-st" class="muted" style="margin-top:8px;font-size:12.5px"></div>
+      <details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:12.5px">Editais encontrados sem total identificado (copie para análise)</summary><textarea id="lote-lista" readonly rows="5" style="width:100%;margin-top:6px;font-size:11.5px"></textarea></details>
       <div class="hint" style="margin-top:10px">Usa os processos do filtro atual (por exemplo, filtre por um ano ou comarca antes). Mantenha esta página aberta durante a execução. Processos já gravados são pulados, então dá para parar e continuar depois.</div>
     </div>
   </div>
@@ -508,8 +510,8 @@ async function djSearch(raw){
 const DJEN_BASE='https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 function djTab(t){ document.querySelectorAll('#dj .tab').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   f('dj-body').hidden=t!=='dj'; f('djen-body').hidden=t!=='djen'; }
-async function djenFetch(cnj){
-  const q='?numeroProcesso='+cnj+'&pagina=1&itensPorPagina=100'; let j;
+async function djenFetch(cnj,opt){
+  opt=opt||{}; const q='?numeroProcesso='+cnj+(opt.meio?'&meio='+opt.meio:'')+'&pagina='+(opt.pagina||1)+'&itensPorPagina=100'; let j;
   try{
     const r=await fetch(DJEN_BASE+q);
     if(r.status===429||r.status>=500){const e=new Error('O DJEN está indisponível ou limitando consultas (HTTP '+r.status+').');e.busy=true;throw e;}
@@ -519,11 +521,26 @@ async function djenFetch(cnj){
     if(e.busy) throw e;
     const proxy=((cfgGet().proxy)||EXEC_URL||'').trim();
     if(!proxy) throw new Error('O navegador bloqueou a chamada ao DJEN (CORS) e não há proxy configurado.');
-    const u=new URL(proxy); u.searchParams.set('djen','1'); u.searchParams.set('cnj',cnj);
+    const u=new URL(proxy); u.searchParams.set('djen','1'); u.searchParams.set('cnj',cnj); if(opt.meio) u.searchParams.set('meio',opt.meio); if(opt.pagina) u.searchParams.set('pagina',opt.pagina);
     j=await getJSON(u.toString());
   }
   if(j&&j.error){ const e=new Error(String(typeof j.error==='string'?j.error:JSON.stringify(j.error)).slice(0,300)); e.busy=/HTTP (429|5\d\d)/.test(e.message); throw e; }
-  return (j&&(j.items||j.content||j.comunicacoes))||[];
+  const it=(j&&(j.items||j.content||j.comunicacoes))||[]; it.__count=(j&&j.count)||it.length; return it;
+}
+// Busca completa: publicações recentes (advogados) + todos os editais do processo.
+// 1) consulta só editais (meio=E); se a API ignorar o filtro, percorre as páginas seguintes (até 8).
+async function djenFetchAll(cnj){
+  const base=await djenFetch(cnj); const map=new Map(); const add=l=>l.forEach(i=>map.set(i.id||(i.numeroComunicacao+'|'+i.data_disponibilizacao),i)); add(base);
+  const isE=i=>i.meio==='E'||/edital/i.test(i.tipoComunicacao||'');
+  if(base.__count>base.length){
+    let ed=[]; try{ ed=await djenFetch(cnj,{meio:'E'}); }catch(e){ if(e.busy) throw e; }
+    add(ed);
+    if(ed.length && !ed.every(isE)){ // filtro ignorado: pagina tudo
+      const tot=Math.min(8,Math.ceil(ed.__count/100));
+      for(let pg=2;pg<=tot;pg++){ await new Promise(r=>setTimeout(r,800)); add(await djenFetch(cnj,{pagina:pg})); }
+    }
+  }
+  const out=[...map.values()]; out.__count=base.__count; return out;
 }
 const djenTxt=h=>{ try{
   const src=String(h||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|tr|section|div|center|header|footer|h\d|li)>/gi,'$&\n').replace(/<\/t[dh]>/gi,'$& ');
@@ -551,25 +568,36 @@ function djenRender(items,cnj){
 // ---- Total do quadro de credores (editais dos arts. 52, 7º, 18 e 164 da Lei 11.101/2005) ----
 const parseBR=v=>parseFloat(String(v).replace(/\./g,'').replace(',','.'));
 function edTipo(t){
-  const u=t.toUpperCase(), pats=[['Art. 164',/ART(?:IGO|\.)?\s*164/],['Art. 52',/ART(?:IGO|\.)?\s*52/],['Art. 7º',/ART(?:IGO|\.)?\s*7\s*[º°O]?(?!\d)/],['Art. 18',/ART(?:IGO|\.)?\s*18(?!\d)/]];
-  let best=null,pos=1e9; for(const [n,re] of pats){ const m=re.exec(u); if(m&&m.index<pos){pos=m.index;best=n;} } return best;
+  const u=t.toUpperCase(), pats=[['Art. 164',/ARTS?(?:IGOS?|\.)?\s*(?:\d+[º°O]?\s*(?:,|E|A|AO)\s*)*164(?!\d)/],['Art. 52',/ARTS?(?:IGOS?|\.)?\s*52(?!\d)/],['Art. 7º',/ARTS?(?:IGOS?|\.)?\s*7\s*[º°O]?(?!\d)/],['Art. 18',/ARTS?(?:IGOS?|\.)?\s*18(?!\d)/],['Art. 18',/QUADRO[- ]GERAL\s+DE\s+CREDORES/]];
+  let best=null,pos=1e9; for(const [n,re] of pats){ const m=re.exec(u); if(m&&m.index<pos){pos=m.index;best=n;} }
+  if(!best&&/CREDORES|LEI\s*(?:N[º°O]?\s*)?11\.?101/.test(u)) best='Edital (art. não identificado)';
+  return best;
 }
+const RV='R\\$\\s*([\\d]{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2})';
 function edTotal(t){
-  let m=/TOTAL\s+GERAL[^R\d]{0,25}R\$\s*([\d.]+,\d{2})/i.exec(t)||/TOTAL\s+(?:DOS\s+)?CR[ÉE]DITOS[^R\d]{0,25}R\$\s*([\d.]+,\d{2})/i.exec(t);
-  if(m) return {v:parseBR(m[1]),soma:false};
-  const all=[...t.matchAll(/TOTAL\s*:?\s*R\$\s*([\d.]+,\d{2})/gi)].map(x=>parseBR(x[1]));
-  return all.length?{v:all.reduce((a,b)=>a+b,0),soma:true}:null;
+  const pats=[
+    new RegExp('TOTAL\\s+GERAL[^\\d$]{0,80}'+RV,'i'),
+    new RegExp('(?:VALOR|MONTANTE)\\s+TOTAL[^\\d$]{0,80}'+RV,'i'),
+    new RegExp('TOTAL\\s+(?:DOS?|DAS?|DE)\\s+(?:CR[ÉE]DITOS?|D[ÍI]VIDAS?|QUADRO|RELA[ÇC][ÃA]O|CREDORES)[^\\d$]{0,80}'+RV,'i')];
+  for(const re of pats){ const m=re.exec(t); if(m){ const v=parseBR(m[1]); if(isFinite(v)) return {v,nota:''}; } }
+  const cls=[...t.matchAll(new RegExp('TOTAL(?:\\s+(?:DA\\s+)?CLASSE\\s+[IVX]+)?\\s*:?[^\\d$]{0,40}'+RV,'gi'))].map(x=>parseBR(x[1])).filter(isFinite);
+  if(cls.length) return {v:cls.reduce((a,b)=>a+b,0),nota:' (soma dos totais por classe)'};
+  if(/CREDOR/i.test(t)&&/CLASSE/i.test(t)){ const all=[...t.matchAll(new RegExp(RV,'gi'))].map(x=>parseBR(x[1])).filter(isFinite);
+    if(all.length>=3) return {v:all.reduce((a,b)=>a+b,0),nota:' (soma dos valores listados – estimativa)'}; }
+  return null;
+}
+function isEdital(i,t){ return i.meio==='E'||/edital/i.test((i.tipoComunicacao||'')+' '+(i.tipoDocumento||''))||/EDITAL/.test(String(t).slice(0,700).toUpperCase())&&/CREDORES/i.test(t); }
+function djenEditais(items){
+  const out=[];
+  items.forEach(i=>{ const t=djenTxt(i.texto); if(!isEdital(i,t)) return; const tp=edTipo(t); if(!tp) return;
+    const tot=edTotal(t); out.push({tipo:tp,data:String(i.data_disponibilizacao||''),total:tot?tot.v:null,nota:tot?tot.nota:'',link:/^https?:/.test(i.link||'')?i.link:''}); });
+  return out;
 }
 function djenQuadro(items){
-  const out=[];
-  items.forEach(i=>{
-    if(!(i.meio==='E'||/edital/i.test(i.tipoComunicacao||''))) return;
-    const t=djenTxt(i.texto); const tp=edTipo(t), tot=edTotal(t); if(!tp||!tot||!isFinite(tot.v)) return;
-    out.push({edital:tp+(tot.soma?' (soma dos totais por classe)':''),data:String(i.data_disponibilizacao||''),total:tot.v,link:/^https?:/.test(i.link||'')?i.link:''});
-  });
+  const out=djenEditais(items).filter(e=>e.total!=null&&isFinite(e.total)).map(e=>({edital:e.tipo+e.nota,data:e.data,total:e.total,link:e.link}));
   out.sort((a,b)=>b.data.localeCompare(a.data));
   if(!out.length) return null;
-  const r=out[0]; r.detalhes=out.map(x=>x.edital+' · '+djDate(x.data)+' · '+brl(x.total)).join('\n').replace(/\n/g,' | ');
+  const r=out[0]; r.detalhes=out.map(x=>x.edital+' · '+djDate(x.data)+' · '+brl(x.total)).join(' | ');
   return r;
 }
 async function gravarQuadro(cnj,q){
@@ -586,56 +614,61 @@ function djenAdvogados(items){
     const nome=String(v.nome).replace(/;/g,',').trim(), k=nome+'|'+oab; if(seen.has(k)) return; seen.add(k); out.push({nome,oab}); }));
   return out;
 }
-async function gravarAdv(cnj,lst){
+async function gravarAdv(cnj,lst,subst){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravar','1'); u.searchParams.set('cnj',cnj);
-  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';'));
+  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); if(subst) u.searchParams.set('substituir','1');
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar.');
   return j;
 }
-function djenSaveBox(items,cnj){
+function djenLimpaMarcas(cnj){ try{ ['djen_','advsv_','qsv_','dq_','dj_'].forEach(k=>localStorage.removeItem(k+cnj)); }catch(e){} }
+function djenSaveBox(items,cnj,refazer){
   const lst=djenAdvogados(items), qd=djenQuadro(items), box=document.createElement('div'); box.className='pub'; box.style.background='var(--bg)';
-  if(!lst.length&&!qd){ return null; }
   const key='advsv_'+cnj, done=()=>{ try{return localStorage.getItem(key)==String(lst.length)&&(!qd||localStorage.getItem('qsv_'+cnj)===String(qd.total));}catch(e){return false;} };
-  const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':''); box.append(msg);
+  const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':' Nenhum edital com total identificado.'); box.append(msg);
+  const rf=document.createElement('button'); rf.className='btn'; rf.type='button'; rf.style.marginTop='6px'; rf.textContent='Refazer busca e gravação'; rf.title='Ignora o que já foi gravado, consulta o DJEN de novo e substitui os dados deste processo na planilha'; rf.onclick=()=>{ djenLimpaMarcas(cnj); djenSearch(cnj,{refazer:true}); };
   const run=async()=>{
     msg.textContent='Gravando na planilha…';
-    try{ if(lst.length){ await gravarAdv(cnj,lst); try{localStorage.setItem(key,String(lst.length));}catch(e){}
+    try{ if(lst.length){ await gravarAdv(cnj,lst,refazer); try{localStorage.setItem(key,String(lst.length));}catch(e){}
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))}; }
       if(qd){ await gravarQuadro(cnj,qd); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
       applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(lst.length?'aba Advogados':'')+(lst.length&&qd?' e ':'')+(qd?'aba Quadro de Credores':'')+').'; }
     catch(e){ msg.textContent='Não foi possível gravar: '+e.message+' '; const b=document.createElement('button'); b.className='btn'; b.type='button'; b.textContent='Tentar novamente'; b.onclick=run; msg.append(b); }
   };
-  if(done()){ msg.textContent='✔ Já gravado na planilha.'; } else run();
-  return box;
+  if(!lst.length&&!qd){ msg.textContent='Nenhum advogado ou edital com total encontrado nas publicações.'; }
+  else if(!refazer&&done()){ msg.textContent='✔ Já gravado na planilha.'; } else run();
+  box.append(rf); return box;
 }
 // ---- Lote: consulta o DJEN dos processos filtrados e grava os advogados em sequência ----
-let loteRun=false;
+let loteRun=false, lote={ed:0,sed:0,sem:0,lista:[]};
 function lotePend(){
+  const refazer=f('lote-refazer')&&f('lote-refazer').checked;
   const seen=new Set(), all=[], pend=[];
   R.forEach(r=>{ if(!match(r)||seen.has(r.cnj)) return; seen.add(r.cnj); all.push(r.cnj);
     let sv=null; try{sv=localStorage.getItem('advsv_'+r.cnj);}catch(e){}
     let dq=null; try{dq=localStorage.getItem('dq_'+r.cnj);}catch(e){}
-    if(dq!=='1'&&!(ADVMAP[r.cnj]&&QMAP[r.cnj])&&sv!=='0') pend.push(r.cnj); });
+    if(refazer||(dq!=='1'&&!(ADVMAP[r.cnj]&&QMAP[r.cnj])&&sv!=='0')) pend.push(r.cnj); });
   return {total:all.length,pend};
 }
 function loteInfo(){
   const {total,pend}=lotePend();
-  f('lote-info').textContent=`${nf(total)} processo(s) no filtro atual · ${nf(pend.length)} ainda sem advogados gravados. Estimativa: cerca de ${Math.max(1,Math.round(pend.length*4/60))} min.`;
+  f('lote-info').textContent=`${nf(total)} processo(s) no filtro atual · ${nf(pend.length)} ${f('lote-refazer')&&f('lote-refazer').checked?'a refazer (todos do filtro)':'ainda sem advogados/edital gravados'}. Estimativa: cerca de ${Math.max(1,Math.round(pend.length*4/60))} min.`;
   f('lote-go').disabled=loteRun||!pend.length;
 }
 async function loteStart(){
-  const {pend}=lotePend(); if(!pend.length) return;
+  const {pend}=lotePend(); if(!pend.length) return; const refazer=f('lote-refazer').checked;
+  if(refazer) pend.forEach(c=>djenLimpaMarcas(c));
   loteRun=true; f('lote-go').disabled=true; f('lote-stop').disabled=false;
-  let ok=0,sem=0,err=0,i=0,seguidos=0;
-  const upd=txt=>{ f('lote-bar').style.width=Math.round(i/pend.length*100)+'%'; f('lote-st').textContent=`${i}/${pend.length} · com advogados: ${ok} · sem publicações: ${sem} · erros: ${err}${txt?' · '+txt:''}`; };
+  lote={ed:0,sed:0,sem:0,lista:[]}; f('lote-lista').value=''; let ok=0,sem=0,err=0,i=0,seguidos=0;
+  const upd=txt=>{ f('lote-bar').style.width=Math.round(i/pend.length*100)+'%'; f('lote-st').textContent=`${i}/${pend.length} · com advogados: ${ok} · sem publicações: ${sem} · erros: ${err} · editais: ${lote.ed} (processos sem edital: ${lote.sed}; editais sem total: ${lote.sem})${txt?' · '+txt:''}`; f('lote-lista').value=lote.lista.join('\n'); };
   for(;i<pend.length&&loteRun;){
     const cnj=pend[i]; upd(fmtCNJ(cnj));
     try{
-      const items=await djenFetch(cnj), lst=djenAdvogados(items), qd=djenQuadro(items);
+      const items=await djenFetchAll(cnj), lst=djenAdvogados(items), qd=djenQuadro(items), eds=djenEditais(items);
+      lote.ed+=eds.length; if(!eds.length) lote.sed++; else if(!qd){ lote.sem++; eds.forEach(e=>lote.lista.push(fmtCNJ(cnj)+' | '+e.tipo+' | '+e.data+' | '+(e.link||'sem link'))); }
       if(qd){ await gravarQuadro(cnj,qd); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
       try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
-      if(lst.length){ await gravarAdv(cnj,lst);
+      if(lst.length){ await gravarAdv(cnj,lst,refazer);
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))};
         try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){} ok++; }
       else { try{localStorage.setItem('advsv_'+cnj,'0');}catch(e){} sem++; }
@@ -652,16 +685,17 @@ async function loteStart(){
   f('lote-bar').style.width=Math.round(i/pend.length*100)+'%';
   f('lote-st').textContent=`${parou?'Interrompido':'Concluído'}: ${i}/${pend.length} · com advogados: ${ok} · sem publicações: ${sem} · erros: ${err}`;
 }
-async function djenSearch(cnj){
+async function djenSearch(cnj,opt){
+  opt=opt||{};
   const b=f('djen-body'); b.innerHTML='<div class="muted">Consultando o Diário de Justiça (DJEN)…</div>'; f('djen-n').textContent='';
-  const ck='djen_'+cnj; try{ const c=JSON.parse(localStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<864e5&&c.d.length){ djenRender(c.d,cnj); const bx=djenSaveBox(c.d,cnj); if(bx) f('djen-body').prepend(bx); return; } }catch(e){}
+  const ck='djen_'+cnj; try{ const c=opt.refazer?null:JSON.parse(localStorage.getItem(ck)||'null'); if(c&&Date.now()-c.t<864e5&&c.d.length){ djenRender(c.d,cnj); const bx=djenSaveBox(c.d,cnj); if(bx) f('djen-body').prepend(bx); return; } }catch(e){}
   const esp=[4000,10000]; let ult;
   for(let t=0;t<=esp.length;t++){
-    try{ const l=await djenFetch(cnj); djenRender(l,cnj); const bx=djenSaveBox(l,cnj); if(bx) f('djen-body').prepend(bx); try{ if(l.length) localStorage.setItem(ck,JSON.stringify({t:Date.now(),d:l})); }catch(e){} return; }
+    try{ const l=await djenFetchAll(cnj); djenRender(l,cnj); const bx=djenSaveBox(l,cnj,opt.refazer); if(bx) f('djen-body').prepend(bx); try{ if(l.length) localStorage.setItem(ck,JSON.stringify({t:Date.now(),d:l})); }catch(e){} return; }
     catch(e){ ult=e; if(!e.busy||t===esp.length) break; b.innerHTML=`<div class="muted">DJEN ocupado. Nova tentativa em ${esp[t]/1000}s…</div>`; await new Promise(r=>setTimeout(r,esp[t])); }
   }
   b.innerHTML=`<div class="dj-err">${escH(ult.message)}</div><p><button class="btn" id="djen-retry">Tentar novamente</button></p>`;
-  f('djen-retry').onclick=()=>djenSearch(cnj);
+  f('djen-retry').onclick=()=>djenSearch(cnj,opt);
 }
 function djOpen(cnj,ev){ f('dj').hidden=false; djTab('dj');
   // posiciona o pop-up onde o usuário clicou (útil quando a página está num iframe alto)
@@ -800,13 +834,13 @@ async function fromFiles(files){
   f('dj-open').onclick=ev=>djOpen('',ev);
   f('lote-open').onclick=()=>{ f('lote').hidden=false; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
   f('lote-close').onclick=()=>{ loteRun=false; f('lote').hidden=true; };
-  f('lote-go').onclick=loteStart; f('lote-stop').onclick=()=>{ loteRun=false; }; document.querySelectorAll('#dj .tab').forEach(b=>b.onclick=()=>djTab(b.dataset.t)); f('dj-close').onclick=()=>{f('dj').hidden=true;};
+  f('lote-refazer').onchange=loteInfo; f('lote-go').onclick=loteStart; f('lote-stop').onclick=()=>{ loteRun=false; }; document.querySelectorAll('#dj .tab').forEach(b=>b.onclick=()=>djTab(b.dataset.t)); f('dj-close').onclick=()=>{f('dj').hidden=true;};
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')f('dj').hidden=true;});
   f('dj-form').onsubmit=e=>{e.preventDefault();djSearch(f('dj-cnj').value);};
   f('cfg-file').onchange=e=>{if(e.target.files.length)fromFiles([...e.target.files]);e.target.value='';};
   setStatus('Carregando dados da planilha…',false);})();
-window.TJRS={djenQuadro,quadroFromMatrix,get QMAP(){return QMAP;},loteStart,lotePend,djenSaveBox,gravarAdv,advFromMatrix,get ADVMAP(){return ADVMAP;},djOpen,djSearch,load,matrixFromGviz,rowsFromMatrix,comarcasFromMatrix,parseCSV,applyData,get R(){return R;}};
+window.TJRS={djenEditais,djenFetchAll,djenQuadro,quadroFromMatrix,get QMAP(){return QMAP;},loteStart,lotePend,djenSaveBox,gravarAdv,advFromMatrix,get ADVMAP(){return ADVMAP;},djOpen,djSearch,load,matrixFromGviz,rowsFromMatrix,comarcasFromMatrix,parseCSV,applyData,get R(){return R;}};
 
 // eventos
 const bind=(id,key,fn)=>f(id).addEventListener('input',e=>{S[key]=e.target.value;page=0;render();});
