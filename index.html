@@ -195,6 +195,7 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
     <div class="mb">
       <div id="lote-info" class="muted" style="margin-bottom:10px"></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <input type="password" id="lote-senha" placeholder="Senha de gravação" autocomplete="off" style="flex:1;min-width:160px">
         <button class="btn primary" id="lote-go">Iniciar</button>
         <button class="btn" id="lote-stop" disabled>Parar</button>
       </div>
@@ -602,10 +603,17 @@ function djenQuadro(items){
   r.detalhes=all.map(x=>x.edital+' · '+djDate(x.data)+' · '+(x.total!=null?brl(x.total):'total não identificado')).join(' | ');
   return r;
 }
-async function gravarQuadro(cnj,q){
+let SENHA='';
+async function verificarSenha(sn){
+  const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
+  const u=new URL(proxy); u.searchParams.set('verificar','1'); u.searchParams.set('senha',sn);
+  const j=await getJSON(u.toString()); if(!j||!j.ok) throw new Error((j&&j.error)||'Não foi possível verificar a senha.');
+  SENHA=sn;
+}
+async function gravarQuadro(cnj,q,senha){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravarq','1'); u.searchParams.set('cnj',cnj); u.searchParams.set('edital',q.edital); u.searchParams.set('data',q.data);
-  u.searchParams.set('total',q.total==null?'':String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||'');
+  u.searchParams.set('total',q.total==null?'':String(q.total)); u.searchParams.set('link',q.link||''); u.searchParams.set('detalhes',q.detalhes||''); if(senha) u.searchParams.set('senha',senha);
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar o quadro.');
 }
 // ---- Gravar advogados na planilha (aba "Advogados") ----
@@ -616,30 +624,42 @@ function djenAdvogados(items){
     const nome=String(v.nome).replace(/;/g,',').trim(), k=nome+'|'+oab; if(seen.has(k)) return; seen.add(k); out.push({nome,oab}); }));
   return out;
 }
-async function gravarAdv(cnj,lst,subst){
+async function gravarAdv(cnj,lst,subst,senha){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravar','1'); u.searchParams.set('cnj',cnj);
-  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); if(subst) u.searchParams.set('substituir','1');
+  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); if(subst) u.searchParams.set('substituir','1'); if(senha) u.searchParams.set('senha',senha);
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar.');
   return j;
 }
 function djenLimpaMarcas(cnj){ try{ ['djen_','advsv_','qsv_','dq_','dj_'].forEach(k=>localStorage.removeItem(k+cnj)); }catch(e){} }
 function djenSaveBox(items,cnj,refazer){
   const lst=djenAdvogados(items), qd=djenQuadro(items), box=document.createElement('div'); box.className='pub'; box.style.background='var(--bg)';
-  const key='advsv_'+cnj, done=()=>{ try{return localStorage.getItem(key)==String(lst.length)&&(!qd||localStorage.getItem('qsv_'+cnj)===String(qd.total));}catch(e){return false;} };
+  const needA=!!lst.length&&(refazer||!ADVMAP[cnj]), needQ=!!qd&&(refazer||!QMAP[cnj]);
   const msg=document.createElement('div'); msg.className='meta'; msg.textContent=lst.length+' advogado(s)/OAB(s) encontrado(s) nas publicações.'+(qd?(qd.total!=null?' Quadro de credores: '+brl(qd.total)+' ('+qd.edital+').':' Edital encontrado ('+qd.edital+') sem total identificado; será gravado sem valor.'):' Nenhum edital encontrado.'); box.append(msg);
-  const rf=document.createElement('button'); rf.className='btn'; rf.type='button'; rf.style.marginTop='6px'; rf.textContent='Refazer busca e gravação'; rf.title='Ignora o que já foi gravado, consulta o DJEN de novo e substitui os dados deste processo na planilha'; rf.onclick=()=>{ djenLimpaMarcas(cnj); djenSearch(cnj,{refazer:true}); };
+  const sn=refazer?SENHA:'';
   const run=async()=>{
     msg.textContent='Gravando na planilha…';
-    try{ if(lst.length){ await gravarAdv(cnj,lst,refazer); try{localStorage.setItem(key,String(lst.length));}catch(e){}
+    try{ if(needA){ await gravarAdv(cnj,lst,refazer,sn); try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){}
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))}; }
-      if(qd){ await gravarQuadro(cnj,qd); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
-      applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(lst.length?'aba Advogados':'')+(lst.length&&qd?' e ':'')+(qd?'aba Quadro de Credores':'')+').'; }
+      if(needQ){ await gravarQuadro(cnj,qd,sn); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
+      applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(needA?'aba Advogados':'')+(needA&&needQ?' e ':'')+(needQ?'aba Quadro de Credores':'')+').'; }
     catch(e){ msg.textContent='Não foi possível gravar: '+e.message+' '; const b=document.createElement('button'); b.className='btn'; b.type='button'; b.textContent='Tentar novamente'; b.onclick=run; msg.append(b); }
   };
-  if(!lst.length&&!qd){ msg.textContent='Nenhum advogado ou edital com total encontrado nas publicações.'; }
-  else if(!refazer&&done()){ msg.textContent='✔ Já gravado na planilha.'; } else run();
-  box.append(rf); return box;
+  if(!lst.length&&!qd){ msg.textContent='Nenhum advogado ou edital encontrado nas publicações.'; }
+  else if(!needA&&!needQ){ msg.textContent='✔ Já gravado na planilha. Para regravar, use "Refazer busca e gravação" (exige senha).'; }
+  else if(refazer&&!SENHA){ msg.textContent='Regravação exige senha.'; }
+  else run();
+  // Refazer: exige senha
+  const rf=document.createElement('button'); rf.className='btn'; rf.type='button'; rf.style.marginTop='6px'; rf.textContent='Refazer busca e gravação'; rf.title='Consulta o DJEN de novo e substitui os dados deste processo na planilha (exige senha)';
+  const go=()=>{ djenLimpaMarcas(cnj); djenSearch(cnj,{refazer:true}); };
+  const fm=document.createElement('div'); fm.style.cssText='display:flex;gap:6px;margin-top:6px'; fm.hidden=true;
+  const inp=document.createElement('input'); inp.type='password'; inp.placeholder='Senha para regravar'; inp.style.flex='1'; inp.autocomplete='off';
+  const ok=document.createElement('button'); ok.className='btn primary'; ok.type='button'; ok.textContent='Confirmar';
+  const st=document.createElement('div'); st.className='meta'; st.style.marginTop='4px';
+  ok.onclick=async()=>{ if(!inp.value) return; st.textContent='Verificando senha…'; try{ await verificarSenha(inp.value); inp.value=''; go(); }catch(e){ st.textContent=e.message; } };
+  inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); ok.click(); } };
+  rf.onclick=()=>{ if(SENHA) go(); else { fm.hidden=false; inp.focus(); } };
+  fm.append(inp,ok); box.append(rf,fm,st); return box;
 }
 // ---- Lote: consulta o DJEN dos processos filtrados e grava os advogados em sequência ----
 let loteRun=false, lote={ed:0,sed:0,sem:0,lista:[]};
@@ -658,7 +678,11 @@ function loteInfo(){
   f('lote-go').disabled=loteRun||!pend.length;
 }
 async function loteStart(){
-  const {pend}=lotePend(); if(!pend.length) return; const refazer=f('lote-refazer').checked;
+  const sn=f('lote-senha').value||SENHA; if(!sn){ f('lote-st').textContent='Informe a senha de gravação para iniciar.'; return; }
+  f('lote-go').disabled=true; f('lote-st').textContent='Verificando senha…';
+  try{ await verificarSenha(sn); }catch(e){ f('lote-st').textContent=e.message; f('lote-go').disabled=false; return; }
+  f('lote-senha').value='';
+  const {pend}=lotePend(); if(!pend.length){ f('lote-st').textContent='Nada a gravar.'; f('lote-go').disabled=false; return; } const refazer=f('lote-refazer').checked;
   if(refazer) pend.forEach(c=>djenLimpaMarcas(c));
   loteRun=true; f('lote-go').disabled=true; f('lote-stop').disabled=false;
   lote={ed:0,sed:0,sem:0,lista:[]}; f('lote-lista').value=''; let ok=0,sem=0,err=0,i=0,seguidos=0;
@@ -668,9 +692,9 @@ async function loteStart(){
     try{
       const items=await djenFetchAll(cnj), lst=djenAdvogados(items), qd=djenQuadro(items), eds=djenEditais(items);
       lote.ed+=eds.length; if(!eds.length) lote.sed++; else if(!qd||qd.total==null){ lote.sem++; eds.forEach(e=>lote.lista.push(fmtCNJ(cnj)+' | '+e.tipo+' | '+e.data+' | '+(e.link||'sem link'))); }
-      if(qd){ await gravarQuadro(cnj,qd); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
+      if(qd&&(refazer||!QMAP[cnj])){ await gravarQuadro(cnj,qd,SENHA); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
       try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
-      if(lst.length){ await gravarAdv(cnj,lst,refazer);
+      if(lst.length){ if(refazer||!ADVMAP[cnj]) await gravarAdv(cnj,lst,refazer,SENHA);
         ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))};
         try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){} ok++; }
       else { try{localStorage.setItem('advsv_'+cnj,'0');}catch(e){} sem++; }
@@ -834,7 +858,7 @@ async function fromFiles(files){
   f('cfg-key').value=c.key||'';f('cfg-proxy').value=c.proxy||'';
   f('cfg-key').oninput=e=>cfgSet({key:e.target.value.trim()}); f('cfg-proxy').oninput=e=>cfgSet({proxy:e.target.value.trim()});
   f('dj-open').onclick=ev=>djOpen('',ev);
-  f('lote-open').onclick=()=>{ f('lote').hidden=false; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
+  f('lote-open').onclick=()=>{ f('lote').hidden=false; f('lote-senha').value=''; loteInfo(); f('lote-st').textContent=''; f('lote-bar').style.width='0'; };
   f('lote-close').onclick=()=>{ loteRun=false; f('lote').hidden=true; };
   f('lote-refazer').onchange=loteInfo; f('lote-go').onclick=loteStart; f('lote-stop').onclick=()=>{ loteRun=false; }; document.querySelectorAll('#dj .tab').forEach(b=>b.onclick=()=>djTab(b.dataset.t)); f('dj-close').onclick=()=>{f('dj').hidden=true;};
   f('dj').addEventListener('click',e=>{if(e.target===f('dj'))f('dj').hidden=true;});
