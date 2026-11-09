@@ -28,7 +28,7 @@ aside{background:var(--panel);border:1px solid var(--line);border-radius:12px;pa
 aside h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:14px 0 6px;display:flex;justify-content:space-between;align-items:center}
 aside h2:first-of-type{margin-top:0}
 aside h2 a{font-size:11px;text-transform:none;letter-spacing:0;color:var(--accent);cursor:pointer}
-input[type=text],input[type=date]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+input[type=text],input[type=date],input[type=number]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .list{max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:var(--bg)}
 .list label{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--line)}
@@ -114,6 +114,7 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
 .pub h4{margin:0 0 4px;font-size:13px}
 .pub .meta{color:var(--mute);font-size:12px;margin-bottom:4px;overflow-wrap:anywhere}
 .pub details summary{cursor:pointer;color:var(--accent);font-size:12.5px;margin-top:4px}
+.pp{font-size:10.5px;color:var(--mute);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:2px;white-space:nowrap}
 .pub .txt{white-space:pre-wrap;margin-top:6px;max-height:260px;overflow:auto;font-size:12.5px;background:var(--bg);padding:8px;border-radius:8px}
 </style>
 </head>
@@ -164,6 +165,12 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
   <input type="text" id="s-advg" placeholder="Buscar advogado…">
   <div class="list" id="l-advg"></div>
   <div class="hint">Preenchido conforme os processos são consultados no Diário de Justiça.</div>
+  <h2>Papel do advogado <a id="x-pap">limpar</a></h2>
+  <div class="list" id="l-pap"></div>
+  <h2>Total do quadro de credores <a id="x-qf">limpar</a></h2>
+  <div class="list" id="l-qf" style="max-height:none"></div>
+  <div style="display:flex;gap:6px;margin-top:6px"><input type="number" min="0" step="any" id="q-min" placeholder="mín. (R$ mi)"><input type="number" min="0" step="any" id="q-max" placeholder="máx. (R$ mi)"></div>
+  <div class="hint">Valor do edital de credores já consultado no DJEN (o valor da causa não é divulgado pelo Datajud/DJEN).</div>
   <h2>Situação <a id="x-sit">limpar</a></h2>
   <div class="list" id="l-sit" style="max-height:none"></div>
   <div class="hint" id="sit-hint"></div>
@@ -179,6 +186,14 @@ tr.clk{cursor:pointer}tr.clk:hover td{background:var(--accent-soft)}
   <div class="grid2">
     <div class="card"><h3>Top 12 comarcas <small>(clique para filtrar)</small></h3><div class="bars" id="b-com"></div></div>
     <div class="card"><h3>Top 12 administradores judiciais <small>(clique para filtrar)</small></h3><div class="bars" id="b-adm"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Processos por faixa do quadro de credores <small>(clique para filtrar)</small></h3><div class="bars" id="b-qf"></div></div>
+    <div class="card"><h3>Papel dos advogados <small>(processos · clique para filtrar)</small></h3><div class="bars" id="b-pap"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h3>Total do quadro por comarca <small>(top 10 · soma dos editais)</small></h3><div class="bars" id="b-qcom"></div></div>
+    <div class="card"><h3>Total do quadro por ano de propositura <small>(soma dos editais)</small></h3><div class="bars" id="b-qano"></div></div>
   </div>
   <div class="card" style="margin-bottom:12px"><h3>Top 12 advogados <small>(clique para filtrar · só processos já consultados)</small></h3><div class="bars" id="b-advg"></div></div>
   <div class="card">
@@ -248,7 +263,8 @@ function load(D){
   R.forEach(r=>{r.nDem=norm(r.dem);r.nCom=norm(r.com);});
   applyAdv();
 }
-function applyAdv(){ R.forEach(r=>{const a=ADVMAP[r.cnj]; r.advs=a&&a.names.length?a.names:[NOADV]; r.advStr=a?a.names.join('; '):''; r.advTip=a?a.pairs.join('\n'):''; r.q=QMAP[r.cnj]||null;}); }
+function applyAdv(){ R.forEach(r=>{const a=ADVMAP[r.cnj]; r.advs=a&&a.names.length?a.names:[NOADV]; r.advStr=a?a.names.join('; '):''; r.advTip=a?a.pairs.join('\n'):'';
+    r.advDet=a?a.names.map(n=>({nome:n,roles:(a.det&&a.det[n])||[]})):[]; r.papCats=a?[...new Set(r.advDet.flatMap(d=>d.roles.length?d.roles.map(x=>x.cat):[CAT.NI]))]:[NOADV]; r.q=QMAP[r.cnj]||null;}); }
 const brl=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 function quadroFromMatrix(M){
   const m={}; if(!M) return m;
@@ -264,13 +280,14 @@ function quadroFromMatrix(M){
 function advFromMatrix(M){
   const m={}; if(!M) return m;
   const hi=M.findIndex(r=>r.map(x=>String(x).trim().toLowerCase()).includes('numero_cnj')); if(hi<0) return m;
-  const h=M[hi].map(x=>String(x).trim().toLowerCase()), ic=h.indexOf('numero_cnj'), ia=h.indexOf('advogados'), io=h.indexOf('oabs');
+  const h=M[hi].map(x=>String(x).trim().toLowerCase()), ic=h.indexOf('numero_cnj'), ia=h.indexOf('advogados'), io=h.indexOf('oabs'), ip=h.indexOf('papeis');
   if(ia<0) return m;
   for(const r of M.slice(hi+1)){
     const cnj=String(r[ic]==null?'':r[ic]).replace(/\D/g,''); if(!cnj) continue;
     const nm=String(r[ia]||'').split(';').map(x=>x.trim()), ob=io<0?[]:String(r[io]||'').split(';').map(x=>x.trim());
-    const pairs=[],names=[]; nm.forEach((n,i)=>{ if(!n) return; pairs.push(n+(ob[i]?' – OAB/'+ob[i]:'')); if(!names.includes(n)) names.push(n); });
-    if(names.length) m[cnj]={names,pairs};
+    const pp=ip<0?[]:String(r[ip]||'').split(';').map(x=>x.trim());
+    const pairs=[],names=[],det={}; nm.forEach((n,i)=>{ if(!n) return; pairs.push(n+(ob[i]?' – OAB/'+ob[i]:'')); if(!names.includes(n)) names.push(n); if(pp[i]&&!(det[n]&&det[n].length)) det[n]=papeisFromStr(pp[i]); });
+    if(names.length) m[cnj]={names,pairs,det};
   }
   return m;
 }
@@ -280,7 +297,9 @@ const nf=n=>n.toLocaleString('pt-BR');
 const norm=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 load({rows:[],comarcas:{}});
 
-const S={cnj:'',th:'',dem:'',com:new Set(),cls:new Set(),adm:new Set(),advg:new Set(),sit:new Set(),from:'',to:'',unit:'proc'};
+const FX=['Sem consulta do edital','Edital sem total identificado','Até R$ 1 mi','R$ 1 a 10 mi','R$ 10 a 50 mi','R$ 50 a 100 mi','Acima de R$ 100 mi'];
+function qFaixa(r){ if(!r.q) return FX[0]; const t=r.q.total; if(t==null) return FX[1]; const m=t/1e6; return m<=1?FX[2]:m<=10?FX[3]:m<=50?FX[4]:m<=100?FX[5]:FX[6]; }
+const S={qf:new Set(),qmin:'',qmax:'',cnj:'',th:'',dem:'',com:new Set(),cls:new Set(),adm:new Set(),advg:new Set(),pap:new Set(),sit:new Set(),from:'',to:'',unit:'proc'};
 let sort={k:'dt',dir:-1}, page=0; const PS=50;
 let searchCom='', searchAdm='', searchAdvg='';
 
@@ -291,6 +310,9 @@ function match(r,skip){
   if(skip!=='com' && S.com.size && !S.com.has(r.com)) return false;
   if(skip!=='cls' && S.cls.size && !S.cls.has(r.cls)) return false;
   if(skip!=='adm' && S.adm.size && !r.adm.some(a=>S.adm.has(a))) return false;
+  if(skip!=='qf' && S.qf.size && !S.qf.has(qFaixa(r))) return false;
+  if(skip!=='qv' && (S.qmin!==''||S.qmax!=='')){ const t=r.q&&r.q.total; if(t==null) return false; if(S.qmin!==''&&t<S.qmin*1e6) return false; if(S.qmax!==''&&t>S.qmax*1e6) return false; }
+  if(skip!=='pap' && S.pap.size && !r.papCats.some(c=>S.pap.has(c))) return false;
   if(skip!=='advg' && S.advg.size && !r.advs.some(a=>S.advg.has(a))) return false;
   if(skip!=='sit' && S.sit.size && !S.sit.has(r.sit)) return false;
   if(skip!=='dt'){ if(S.from && r.dt<S.from) return false; if(S.to && r.dt>S.to) return false; }
@@ -323,7 +345,7 @@ function checklist(el,counts,set,search,labelFn){
   }
 }
 
-function bars(el,counts,set,total,limit,onClick){
+function bars(el,counts,set,total,limit,onClick,fmt){
   const arr=[...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,limit);
   const max=arr.length?arr[0][1]:1; el.innerHTML='';
   if(!arr.length){el.innerHTML='<div class="muted">Sem dados</div>';return;}
@@ -331,8 +353,8 @@ function bars(el,counts,set,total,limit,onClick){
     const d=document.createElement('div');d.className='b'+(set.size&&!set.has(k)?' off':'');
     const lab=typeof k==='number'?CLS_SHORT[k]:k;
     d.innerHTML=`<span class="lab" title="${lab.replace(/"/g,'&quot;')}"></span><span class="tr"><span class="fi" style="display:block;width:${Math.max(2,n/max*100)}%"></span></span><span class="num"></span>`;
-    d.children[0].textContent=lab; d.children[2].textContent=nf(n)+' · '+(total?Math.round(n/total*100):0)+'%';
-    d.title='Clique para filtrar / remover filtro'; d.onclick=()=>onClick(k); el.append(d);
+    d.children[0].textContent=lab; d.children[2].textContent=fmt?fmt(n,total):nf(n)+' · '+(total?Math.round(n/total*100):0)+'%';
+    d.title=onClick?'Clique para filtrar / remover filtro':''; if(onClick) d.onclick=()=>onClick(k); else d.style.cursor='default'; el.append(d);
   }
 }
 const toggle=(set,k)=>{set.has(k)?set.delete(k):set.add(k);page=0;render();};
@@ -343,6 +365,8 @@ function render(){
   checklist(document.getElementById('l-cls'),agg('cls',r=>[r.cls]),S.cls,'',k=>CLS_SHORT[k]);
   checklist(document.getElementById('l-adm'),agg('adm',r=>r.adm),S.adm,searchAdm);
   checklist(document.getElementById('l-advg'),agg('advg',r=>r.advs),S.advg,searchAdvg);
+  checklist(document.getElementById('l-qf'),(()=>{const m=agg('qf',r=>[qFaixa(r)]); const o=new Map(); FX.forEach(k=>{if(m.has(k))o.set(k,m.get(k));}); return o;})(),S.qf,'');
+  checklist(document.getElementById('l-pap'),agg('pap',r=>r.papCats),S.pap,'');
   checklist(document.getElementById('l-sit'),agg('sit',r=>[r.sit]),S.sit,'');
 
   const rows=R.filter(r=>match(r));
@@ -359,7 +383,8 @@ function render(){
     [nf(rows.length),'Linhas / demandados'],
     [nf(comSet.size),'Comarcas'],
     [nf(admSet.size),'Administradores distintos'],
-    [procs.size?Math.round(semAdm/procs.size*100)+'%':'–','Processos sem administrador']
+    [procs.size?Math.round(semAdm/procs.size*100)+'%':'–','Processos sem administrador'],
+    ['<span id="kq">–</span>','Quadro de credores']
   ];
   document.getElementById('kpis').innerHTML=kp.map(([v,l])=>`<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
   document.getElementById('sub').textContent=`${nf(procs.size)} processos`;
@@ -373,6 +398,9 @@ function render(){
   S.cls.forEach(k=>chips.push(['Classe: '+CLS_SHORT[k],()=>S.cls.delete(k)]));
   S.adm.forEach(k=>chips.push(['Adm.: '+k,()=>S.adm.delete(k)]));
   S.advg.forEach(k=>chips.push(['Advogado: '+k,()=>S.advg.delete(k)]));
+  S.pap.forEach(k=>chips.push(['Papel: '+k,()=>S.pap.delete(k)]));
+  S.qf.forEach(k=>chips.push(['Quadro: '+k,()=>S.qf.delete(k)]));
+  if(S.qmin!==''||S.qmax!=='') chips.push(['Quadro: '+(S.qmin!==''?'≥ '+S.qmin+' mi ':'')+(S.qmax!==''?'≤ '+S.qmax+' mi':''),()=>{S.qmin=S.qmax='';f('q-min').value=f('q-max').value='';}]);
   S.sit.forEach(k=>chips.push(['Situação: '+k,()=>S.sit.delete(k)]));
   if(S.from||S.to)chips.push(['Data: '+(S.from?fmtDt(S.from):'…')+' → '+(S.to?fmtDt(S.to):'…'),()=>{S.from=S.to='';}]);
   const ch=document.getElementById('chips');ch.innerHTML='';
@@ -396,6 +424,17 @@ function render(){
   bars(f('b-cls'),cc,S.cls,ccTot,5,k=>toggle(S.cls,k));
   const mc=agg('com',r=>[r.com]); bars(f('b-com'),mc,S.com,[...mc.values()].reduce((a,b)=>a+b,0),12,k=>toggle(S.com,k));
   const mg=agg('advg',r=>r.advs.filter(a=>a!==NOADV)); bars(f('b-advg'),mg,S.advg,total,12,k=>toggle(S.advg,k));
+  const mq=agg('qf',r=>[qFaixa(r)]), mqo=new Map(); FX.forEach(k=>{if(mq.has(k))mqo.set(k,mq.get(k));});
+  bars(f('b-qf'),mqo,S.qf,total,7,k=>toggle(S.qf,k));
+  const mp=agg('pap',r=>r.papCats.filter(c=>c!==NOADV)); bars(f('b-pap'),mp,S.pap,total,8,k=>toggle(S.pap,k));
+  const seenQ=new Set(), sc=new Map(), sa=new Map(); let somaQ=0;
+  rows.forEach(r=>{ if(!r.q||r.q.total==null||seenQ.has(r.cnj)) return; seenQ.add(r.cnj); somaQ+=r.q.total;
+    sc.set(r.com,(sc.get(r.com)||0)+r.q.total); const y=(r.dt||'').slice(0,4)||'s/d'; sa.set(y,(sa.get(y)||0)+r.q.total); });
+  const fm=(n,t)=>brl(n)+(t?' · '+Math.round(n/t*100)+'%':'');
+  bars(f('b-qcom'),sc,new Set(),somaQ,10,null,fm);
+  const sao=new Map([...sa.entries()].sort((a,b)=>a[0]<b[0]?-1:1).slice(-12)); const mx=Math.max(1,...sao.values());
+  bars(f('b-qano'),new Map([...sao.entries()].sort((a,b)=>b[1]-a[1])),new Set(),somaQ,12,null,fm);
+  const kq=document.getElementById('kq'); if(kq){ kq.textContent=seenQ.size?brl(somaQ):'–'; kq.parentElement.parentElement.title=nf(seenQ.size)+' processos com total identificado'; }
   const ma=agg('adm',r=>r.adm); bars(f('b-adm'),ma,S.adm,total,12,k=>toggle(S.adm,k));
 
   // tabela
@@ -415,7 +454,8 @@ function render(){
     return g.map((x,k)=>`<tr class="clk${k===0?' gs':''}" data-cnj="${x.cnj}" title="Clique para consultar no Datajud">`
       +(k===0?`<td class="mono"${rs}>${fmtCNJ(r.cnj)}${n>1?`<div class="muted" style="font-family:inherit;font-size:11px">${n} partes</div>`:''}</td><td${rs}>${esc(r.th)}</td><td${rs}>${esc(r.com)}</td><td${rs}><span class="tag ${CLS_TAG[r.cls]}">${CLS_SHORT[r.cls]}</span></td>`:'')
       +`<td>${esc(x.dem)}</td>`
-      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td${rs} title="${escH(r.advTip)}">${r.advStr?esc(r.advStr):'<span class="muted">—</span>'}</td><td${rs} title="${r.q?escH(r.q.detalhes||''):''}">${r.q?`<b>${r.q.total!=null?brl(r.q.total):'<span class="muted">Total não identificado</span>'}</b><div class="muted" style="font-size:11px">${r.q.link?`<a href="${escH(r.q.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escH(r.q.edital)}</a>`:escH(r.q.edital)} · ${escH(djDate(r.q.data))}</div>`:'<span class="muted">—</span>'}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
+      +(k===0?`<td${rs}>${esc(r.admStr)}</td><td${rs}>${r.advDet&&r.advDet.length?r.advDet.map(d=>{const cs=[...new Set(d.roles.map(x=>x.cat))], tip=d.roles.map(x=>x.cat+(x.inf?' (inferido)':'')+(x.parte?' :: '+x.parte:'')).join('\n');
+        return `<div title="${escH(tip||CAT.NI)}">${esc(d.nome)} <span class="pp">${escH((cs.length?cs:[CAT.NI]).map(c=>CAT_SHORT[c]||c).join(' / '))}${d.roles.some(x=>x.inf)?'*':''}</span></div>`;}).join(''):'<span class="muted">—</span>'}</td><td${rs} title="${r.q?escH(r.q.detalhes||''):''}">${r.q?`<b>${r.q.total!=null?brl(r.q.total):'<span class="muted">Total não identificado</span>'}</b><div class="muted" style="font-size:11px">${r.q.link?`<a href="${escH(r.q.link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escH(r.q.edital)}</a>`:escH(r.q.edital)} · ${escH(djDate(r.q.data))}</div>`:'<span class="muted">—</span>'}</td><td class="mono"${rs}>${fmtDt(r.dt)}</td><td${rs}>${r.sit===EMPTY?'<span class="muted">—</span>':esc(r.sit)}</td>`:'')
       +'</tr>').join('');
   }).join('')||'<tr><td colspan="10" class="muted">Nenhum registro para os filtros atuais.</td></tr>';
   tb.querySelectorAll('tr[data-cnj]').forEach(tr=>tr.onclick=ev=>djOpen(tr.dataset.cnj,ev));
@@ -617,17 +657,69 @@ async function gravarQuadro(cnj,q,senha){
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar o quadro.');
 }
 // ---- Gravar advogados na planilha (aba "Advogados") ----
+// ---- Papel de cada advogado no processo (a partir das publicações do DJEN) ----
+const CAT={AUT:'Representante da autora/recuperanda',DEM:'Representante da parte demandada',TER:'Terceiro interessado / credor',ADM:'Administrador judicial',MP:'Ministério Público',OUT:'Outro',NI:'Não identificado'};
+const CAT_SHORT={[CAT.AUT]:'Autora/recuperanda',[CAT.DEM]:'Demandada',[CAT.TER]:'Terceiro/credor',[CAT.ADM]:'Adm. judicial',[CAT.MP]:'MP',[CAT.OUT]:'Outro',[CAT.NI]:'Não identificado'};
+const nz=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\([^)]*\)/g,' ').replace(/[^A-Za-z0-9]+/g,' ').trim().toUpperCase();
+const ADM_RE=/ADMINISTRAD(?:OR|ORA)\w*\s+JUDICIAL|ADMINISTRACAO\s+(?:DE\s+)?(?:FALENCIAS|EMPRESAS\s+EM\s+RECUPERACAO|JUDICIAL)/;
+function catParte(papel,nome,polo){
+  const p=nz(papel), n=nz(nome);
+  if(/ADMINISTRAD/.test(p)||ADM_RE.test(n)) return CAT.ADM;
+  if(/MINISTERIO PUBLICO|PROMOTOR|PROCURADOR/.test(p+' '+n)) return CAT.MP;
+  if(p){
+    if(/^(AUTOR|REQUERENTE|RECUPERAND|EXEQUENTE|IMPETRANTE|APELANTE|AGRAVANTE|EMBARGANTE)/.test(p)) return CAT.AUT;
+    if(/^(REU|REQUERID|EXECUTAD|DEMANDAD|FALID|APELAD|AGRAVAD|EMBARGAD|IMPETRAD)/.test(p)) return CAT.DEM;
+    if(/^(INTERESSAD|TERCEIR|ASSISTENTE|CREDOR|HABILITANTE|IMPUGNANTE|OPOENTE|LITISCONSORTE|AMICUS)/.test(p)) return CAT.TER;
+    return CAT.OUT;
+  }
+  if(polo==='A') return CAT.AUT; if(polo==='P'||polo==='D') return CAT.DEM; if(polo==='T') return CAT.TER; return CAT.OUT;
+}
+function djenTabela(html){ // tabela "AUTOR: … / ADVOGADO(A): …" do texto das intimações
+  try{ const dd=new DOMParser().parseFromString(String(html||''),'text/html'), out=[]; let cur=null;
+    dd.querySelectorAll('tr').forEach(tr=>{ const td=tr.querySelectorAll('td'); if(td.length<2) return;
+      const lab=td[0].textContent.replace(/\s+/g,' ').trim(), val=td[1].textContent.replace(/^[\s:]+/,'').replace(/\s+/g,' ').trim();
+      if(/^ADVOGAD/i.test(lab)){ if(cur&&val) cur.adv.push(val.replace(/\s*\(\s*OAB[^)]*\)\s*$/i,'').trim()); }
+      else if(!/^RELATOR/i.test(lab)){ cur={papel:lab,parte:val,adv:[]}; out.push(cur); } });
+    return out; }catch(e){ return []; }
+}
+function papelStr(roles){
+  const g=new Map(); roles.forEach(r=>{ const k=r.cat+(r.inf?' (inferido)':''); const a=g.get(k)||[]; if(r.parte&&!a.includes(r.parte)) a.push(r.parte); g.set(k,a); });
+  return [...g].map(([k,a])=>k+(a.length?' :: '+(a.length>3?a.slice(0,3).join(' + ')+' + …':a.join(' + ')):'')).join(' // ');
+}
+function papeisFromStr(str){
+  return String(str||'').split(' // ').map(x=>x.trim()).filter(Boolean).map(x=>{ const [c,...r]=x.split(' :: '); const inf=/\(inferido\)/.test(c); return {cat:c.replace(/\s*\(inferido\)/,'').trim(),parte:r.join(' :: ').trim(),inf}; });
+}
+function atribuirPapeis(items,lst){
+  const roles=new Map();
+  const add=(adv,cat,parte,inf)=>{ const k=nz(adv); if(!k) return; const arr=roles.get(k)||[]; const pt=String(parte||'').replace(/;/g,',').trim();
+    if(!arr.some(r=>r.cat===cat&&nz(r.parte)===nz(pt))) arr.push({cat,parte:pt,inf:!!inf}); roles.set(k,arr); };
+  const self=(a,pt)=>nz(a)&&nz(a)===nz(pt);
+  const advsOf=i=>[...new Set((i.destinatarioadvogados||[]).map(a=>a&&a.advogado&&a.advogado.nome).filter(Boolean))];
+  items.forEach(i=>{ const ds=i.destinatarios||[], advs=advsOf(i);
+    djenTabela(i.texto).forEach(t=>t.adv.forEach(a=>add(a,catParte(t.papel,t.parte,''),t.parte+(self(a,t.parte)?' (em causa própria)':''),false)));
+    if(ds.length===1) advs.forEach(a=>add(a,catParte('',ds[0].nome,ds[0].polo),ds[0].nome+(self(a,ds[0].nome)?' (em causa própria)':''),false)); });
+  const cob=new Set(); roles.forEach(arr=>arr.forEach(r=>cob.add(nz(r.parte))));
+  items.forEach(i=>{ const ds=i.destinatarios||[]; if(ds.length<2) return;
+    const um=advsOf(i).filter(a=>!(roles.get(nz(a))||[]).length), up=ds.filter(d=>d.nome&&!cob.has(nz(d.nome)));
+    if(um.length===1&&up.length===1){ add(um[0],catParte('',up[0].nome,up[0].polo),up[0].nome,true); cob.add(nz(up[0].nome)); } });
+  lst.forEach(x=>{ const a=roles.get(nz(x.nome)); x.roles=a&&a.length?a:[{cat:CAT.NI,parte:'',inf:false}]; x.pap=papelStr(x.roles); });
+  return lst;
+}
+function mkAdvEntry(lst){
+  const det={}; lst.forEach(x=>{ det[x.nome]=x.roles||[]; });
+  return {names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:'')),det};
+}
 function djenAdvogados(items){
   const seen=new Set(), out=[];
   items.forEach(i=>(i.destinatarioadvogados||[]).forEach(a=>{const v=a&&a.advogado; if(!v||!v.nome) return;
     const n=String(v.numero_oab||'').replace(/^[A-Za-z]{2}(?=\d)/,''); const oab=n?((v.uf_oab||'')+' '+n).trim():'';
     const nome=String(v.nome).replace(/;/g,',').trim(), k=nome+'|'+oab; if(seen.has(k)) return; seen.add(k); out.push({nome,oab}); }));
-  return out;
+  return atribuirPapeis(items,out);
 }
 async function gravarAdv(cnj,lst,subst,senha){
   const proxy=((cfgGet().proxy)||EXEC_URL||'').trim(); if(!proxy) throw new Error('Sem URL do Apps Script.');
   const u=new URL(proxy); u.searchParams.set('gravar','1'); u.searchParams.set('cnj',cnj);
-  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); if(subst) u.searchParams.set('substituir','1'); if(senha) u.searchParams.set('senha',senha);
+  u.searchParams.set('adv',lst.map(x=>x.nome).join(';')); u.searchParams.set('oab',lst.map(x=>x.oab).join(';')); u.searchParams.set('pap',lst.map(x=>(x.pap||'').replace(/;/g,',')).join(';')); if(subst) u.searchParams.set('substituir','1'); if(senha) u.searchParams.set('senha',senha);
   const j=await getJSON(u.toString()); if(!j||j.error||!j.ok) throw new Error((j&&j.error)||'Falha ao gravar.');
   return j;
 }
@@ -640,7 +732,7 @@ function djenSaveBox(items,cnj,refazer){
   const run=async()=>{
     msg.textContent='Gravando na planilha…';
     try{ if(needA){ await gravarAdv(cnj,lst,refazer,sn); try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){}
-        ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))}; }
+        ADVMAP[cnj]=mkAdvEntry(lst); }
       if(needQ){ await gravarQuadro(cnj,qd,sn); try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; }
       applyAdv(); render(); msg.textContent='✔ Gravado na planilha ('+(needA?'aba Advogados':'')+(needA&&needQ?' e ':'')+(needQ?'aba Quadro de Credores':'')+').'; }
     catch(e){ msg.textContent='Não foi possível gravar: '+e.message+' '; const b=document.createElement('button'); b.className='btn'; b.type='button'; b.textContent='Tentar novamente'; b.onclick=run; msg.append(b); }
@@ -695,7 +787,7 @@ async function loteStart(){
       if(qd&&(refazer||!QMAP[cnj])){ await gravarQuadro(cnj,qd,SENHA); QMAP[cnj]={edital:qd.edital,data:qd.data,total:qd.total,link:qd.link,detalhes:qd.detalhes}; try{localStorage.setItem('qsv_'+cnj,String(qd.total));}catch(e){} }
       try{localStorage.setItem('dq_'+cnj,'1');}catch(e){}
       if(lst.length){ if(refazer||!ADVMAP[cnj]) await gravarAdv(cnj,lst,refazer,SENHA);
-        ADVMAP[cnj]={names:[...new Set(lst.map(x=>x.nome))],pairs:lst.map(x=>x.nome+(x.oab?' – OAB/'+x.oab:''))};
+        ADVMAP[cnj]=mkAdvEntry(lst);
         try{localStorage.setItem('advsv_'+cnj,String(lst.length));}catch(e){} ok++; }
       else { try{localStorage.setItem('advsv_'+cnj,'0');}catch(e){} sem++; }
       seguidos=0; i++;
@@ -875,9 +967,12 @@ f('s-com').addEventListener('input',e=>{searchCom=e.target.value;render();});
 f('s-adm').addEventListener('input',e=>{searchAdm=e.target.value;render();});
 f('s-advg').addEventListener('input',e=>{searchAdvg=e.target.value;render();});
 f('x-advg').onclick=()=>{S.advg.clear();render();};
+f('x-pap').onclick=()=>{S.pap.clear();render();};
 f('x-com').onclick=()=>{S.com.clear();render();};f('x-cls').onclick=()=>{S.cls.clear();render();};
+f('x-qf').onclick=()=>{S.qf.clear();S.qmin=S.qmax='';f('q-min').value=f('q-max').value='';render();};
+f('q-min').oninput=e=>{S.qmin=e.target.value===''?'':+e.target.value;page=0;render();};f('q-max').oninput=e=>{S.qmax=e.target.value===''?'':+e.target.value;page=0;render();};
 f('x-adm').onclick=()=>{S.adm.clear();render();};f('x-sit').onclick=()=>{S.sit.clear();render();};
-f('clear').onclick=()=>{S.cnj=S.th=S.dem=S.from=S.to='';S.com.clear();S.cls.clear();S.adm.clear();S.sit.clear();S.advg.clear();
+f('clear').onclick=()=>{S.cnj=S.th=S.dem=S.from=S.to='';S.com.clear();S.cls.clear();S.adm.clear();S.sit.clear();S.advg.clear();S.pap.clear();S.qf.clear();S.qmin=S.qmax='';f('q-min').value=f('q-max').value='';
   ['f-cnj','f-th','f-dem','s-com','s-adm','s-advg'].forEach(i=>f(i).value='');searchCom=searchAdm=searchAdvg='';page=0;render();};
 f('prev').onclick=()=>{page--;render();};f('next').onclick=()=>{page++;render();};
 document.querySelectorAll('#unit button').forEach(b=>b.onclick=()=>{S.unit=b.dataset.u;
