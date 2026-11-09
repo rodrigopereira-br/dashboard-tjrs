@@ -42,6 +42,7 @@ input[type=text],input[type=date],input[type=number]{width:100%;padding:7px 9px;
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn:disabled{opacity:.4;cursor:default}
 main{min-width:0}
+.kpi .v{overflow-wrap:anywhere}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
 .kpi .v{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums}
@@ -434,7 +435,8 @@ function render(){
   bars(f('b-qcom'),sc,new Set(),somaQ,10,null,fm);
   const sao=new Map([...sa.entries()].sort((a,b)=>a[0]<b[0]?-1:1).slice(-12)); const mx=Math.max(1,...sao.values());
   bars(f('b-qano'),new Map([...sao.entries()].sort((a,b)=>b[1]-a[1])),new Set(),somaQ,12,null,fm);
-  const kq=document.getElementById('kq'); if(kq){ kq.textContent=seenQ.size?brl(somaQ):'–'; kq.parentElement.parentElement.title=nf(seenQ.size)+' processos com total identificado'; }
+  const kq=document.getElementById('kq'); if(kq){ const cp=v=>v>=1e9?'R$ '+(v/1e9).toLocaleString('pt-BR',{maximumFractionDigits:2})+' bi':v>=1e6?'R$ '+(v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:2})+' mi':brl(v);
+    kq.textContent=seenQ.size?cp(somaQ):'–'; kq.title=brl(somaQ); kq.parentElement.parentElement.title=nf(seenQ.size)+' processos com total identificado'; }
   const ma=agg('adm',r=>r.adm); bars(f('b-adm'),ma,S.adm,total,12,k=>toggle(S.adm,k));
 
   // tabela
